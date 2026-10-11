@@ -104,6 +104,67 @@ to get them.
 
 `ENCRYPTION_KEY` is **not** a GitHub secret. See above.
 
+## Object storage: transcripts and attachments
+
+Both features live in [`src/lib/storage.js`](../src/lib/storage.js) and are
+**off unless `S3_BUCKET` is set**, so a self-hoster with no AWS account is
+unaffected and this stays mergeable with upstream. Every call site treats
+storage as fallible and degrades rather than failing the interaction — the bot
+staying available matters more than an object reaching S3.
+
+**Transcripts.** `/transcript` renders the whole ticket in memory and sends it
+as a Discord attachment, which fails outright once a busy ticket renders past
+Discord's upload limit. With a bucket configured it uploads instead and replies
+with a presigned link; any failure falls back to the attachment.
+
+**Attachments.** Archived messages previously stored only Discord's CDN URL for
+each attachment, and those URLs expire — so old transcripts quietly rot.
+Attachments are now mirrored into the bucket and the key recorded as `s3Key`
+alongside the original URL.
+
+Avatars have the same problem and are *not* yet fixed: `TicketArchiver` still
+stores only the avatar hash, next to a standing upstream
+`// TODO: save avatar in user/avatars/`. Mirroring those to S3 would be the
+natural follow-up, and is not done here.
+
+That needed no Prisma migration: the attachment list already lives inside the
+encrypted JSON blob in `archivedMessages.content`, so adding a field is a
+change to the blob's shape, not the schema. The stored shape is otherwise
+untouched (`toJSON()` is what `JSON.stringify` called anyway), which matters
+because rows written before this change will not have the field.
+
+Two safeguards exist because the shared instance is memory-constrained and a
+mirrored object is buffered in full:
+
+- `S3_MAX_ATTACHMENT_SIZE` (default 8 MiB) — larger attachments keep their
+  Discord URL. The cap is enforced three times: against the size Discord
+  declares, against `Content-Length`, and against the bytes actually received,
+  since the first two can lie.
+- At most two mirrors run at once, so a burst of messages cannot decide the
+  worst-case footprint.
+
+### Environment variables
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `S3_BUCKET` | — | Enables storage. Unset means everything stays local. |
+| `S3_REGION` | `AWS_REGION` | Bucket region. |
+| `S3_ENDPOINT` | — | For S3-compatible stores (MinIO, R2); forces path-style addressing. |
+| `S3_PREFIX` | — | Key prefix. Multi-segment values keep their slashes. |
+| `S3_URL_EXPIRY` | `86400` | Presigned link lifetime, seconds. Clamped to 604800 (the SigV4 maximum). |
+| `S3_ARCHIVE_ATTACHMENTS` | `true` when a bucket is set | `false` keeps transcripts but stops mirroring. |
+| `S3_MAX_ATTACHMENT_SIZE` | `8388608` | Largest attachment mirrored, bytes. |
+
+The bucket uses one prefix per concern, and the lifecycle rules in
+`tickets.tf` are written against exactly these names, so the two must agree:
+`db-dumps/` (Glacier IR at 30d, expire 365d), `transcripts/` (expire 30d —
+they can always be re-rendered) and `attachments/` (never expired, because
+they are the only durable copy).
+
+`scripts/check-storage.js` covers the key building, the size caps and the
+concurrency gate with `fetch` stubbed, and runs as part of `npm test`. It does
+not exercise a real bucket.
+
 ## Backups
 
 [`scripts/backup-s3.sh`](../scripts/backup-s3.sh) runs the repo's own

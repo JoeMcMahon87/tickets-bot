@@ -43,6 +43,19 @@ const env = {
 	OVERRIDE_ARCHIVE: () => true, // optional
 	PUBLIC_BOT: () => true, // optional
 	PUBLISH_COMMANDS: () => true, // optional
+	// Optional S3 object storage. Everything stays disabled unless S3_BUCKET
+	// is set, so these must not be required. See src/lib/storage.js.
+	S3_ARCHIVE_ATTACHMENTS: () => true, // optional
+	S3_BUCKET: () => true, // optional
+	S3_ENDPOINT: () => true, // optional
+	S3_MAX_ATTACHMENT_SIZE: () => true, // optional
+	S3_PREFIX: () => true, // optional
+	S3_REGION: v =>
+		(!v || !!(process.env.S3_BUCKET)) ||
+		new Error('is only meaningful when "S3_BUCKET" is set'),
+	S3_URL_EXPIRY: v =>
+		(!v || (Number.isInteger(Number(v)) && Number(v) > 0 && Number(v) <= 604800)) ||
+		new Error('must be a number of seconds between 1 and 604800 (7 days, the SigV4 maximum)'),
 	SUPER: () => true, // optional
 };
 

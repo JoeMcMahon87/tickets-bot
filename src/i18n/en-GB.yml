@@ -252,6 +252,9 @@ commands:
       name: topic
     transcript:
       description: Get the transcript of a ticket
+      link:
+        description: "[Download `{fileName}`]({url})\n\nThis link expires in {expiry}."
+        title: 📄 Transcript ready
       name: transcript
       not_staff:
         description: Only staff members can read the transcripts of others' tickets.

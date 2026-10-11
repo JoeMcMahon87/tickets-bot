@@ -30,6 +30,17 @@ const env = {
 	OVERRIDE_ARCHIVE: '',
 	PUBLIC_BOT: false,
 	PUBLISH_COMMANDS: false,
+	// Optional S3 object storage: transcripts are delivered as presigned links
+	// instead of Discord attachments, and message attachments are mirrored so
+	// archives survive Discord's CDN URLs expiring. Leave S3_BUCKET empty to
+	// keep everything local.
+	S3_ARCHIVE_ATTACHMENTS: '',
+	S3_BUCKET: '',
+	S3_ENDPOINT: '',
+	S3_MAX_ATTACHMENT_SIZE: '',
+	S3_PREFIX: '',
+	S3_REGION: '',
+	S3_URL_EXPIRY: '',
 	SUPER: '319467558166069248',
 };
 

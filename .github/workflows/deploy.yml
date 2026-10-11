@@ -7,7 +7,7 @@ name: Test and Deploy
 # service, close SSH again.
 #
 # The instance must already be bootstrapped by DiscordBotInfrastructure
-# (tickets.tf + the Node.js `setup_bot` variant in user_data.sh), which
+# (tickets.tf + bootstrap-tickets-bot.sh), which
 # creates /opt/tickets-bot, the `tickets-bot` system user and service, and
 # seeds /opt/tickets-bot/app/.env with the non-secret config.
 
@@ -40,8 +40,10 @@ jobs:
       - name: Lint
         run: bunx eslint src scripts
 
-      - name: Validate localisations
-        run: bun ./scripts/check-i18n.js
+      # check-i18n plus check-storage (src/lib/storage.js key building, size
+      # caps and mirror concurrency).
+      - name: Run checks
+        run: bun run test
 
   deploy:
     name: Deploy to shared EC2

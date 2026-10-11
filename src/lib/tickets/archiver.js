@@ -1,4 +1,5 @@
 const { pools } = require('../threads');
+const storage = require('../storage');
 
 const { crypto } = pools;
 
@@ -118,10 +119,51 @@ module.exports = class TicketArchiver {
 				);
 			}
 
+			// Discord's CDN URLs expire, so an archive that stores only the URL
+			// silently rots: the transcript still lists the attachment but the
+			// link is dead. Mirroring the bytes to S3 and recording the key
+			// alongside the original URL makes the archive self-contained.
+			//
+			// `toJSON()` is what JSON.stringify would have called anyway, so
+			// the stored shape is unchanged apart from the added `s3Key` —
+			// which matters because the attachment list lives inside an
+			// encrypted blob that older rows will not have.
+			const attachments = [...message.attachments.values()].map(attachment => attachment.toJSON());
+
+			if (storage.archiveAttachments && attachments.length > 0) {
+				await Promise.all(attachments.map(async (attachment, i) => {
+					try {
+						const key = storage.buildKey(
+							'attachments',
+							ticketId,
+							message.id,
+							attachment.id,
+							attachment.name,
+						);
+						// Returns null when the file is over the size cap or
+						// the source has already gone; either way the original
+						// URL is all we keep.
+						const written = await storage.mirror(attachment.url, key, {
+							contentType: attachment.contentType,
+							size: attachment.size,
+						});
+						if (written) {
+							attachments[i] = {
+								...attachment,
+								s3Key: written,
+							};
+						}
+					} catch (error) {
+						this.client.log.warn('Failed to mirror attachment %s of message %s', attachment.id, message.id);
+						this.client.log.error(error);
+					}
+				}));
+			}
+
 			const data = {
 				content: await crypto.queue(w => w.encrypt(
 					JSON.stringify({
-						attachments: [...message.attachments.values()],
+						attachments,
 						components: [...message.components.values()],
 						content: message.content,
 						embeds: message.embeds.map(embed => ({ ...embed })),
