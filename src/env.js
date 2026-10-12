@@ -46,6 +46,7 @@ const env = {
 	// Optional S3 object storage. Everything stays disabled unless S3_BUCKET
 	// is set, so these must not be required. See src/lib/storage.js.
 	S3_ARCHIVE_ATTACHMENTS: () => true, // optional
+	S3_ARCHIVE_AVATARS: () => true, // optional
 	S3_BUCKET: () => true, // optional
 	S3_ENDPOINT: () => true, // optional
 	S3_MAX_ATTACHMENT_SIZE: () => true, // optional

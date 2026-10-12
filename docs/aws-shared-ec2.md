@@ -104,9 +104,9 @@ to get them.
 
 `ENCRYPTION_KEY` is **not** a GitHub secret. See above.
 
-## Object storage: transcripts and attachments
+## Object storage: transcripts, attachments and avatars
 
-Both features live in [`src/lib/storage.js`](../src/lib/storage.js) and are
+These live in [`src/lib/storage.js`](../src/lib/storage.js) and are
 **off unless `S3_BUCKET` is set**, so a self-hoster with no AWS account is
 unaffected and this stays mergeable with upstream. Every call site treats
 storage as fallible and degrades rather than failing the interaction — the bot
@@ -122,10 +122,44 @@ each attachment, and those URLs expire — so old transcripts quietly rot.
 Attachments are now mirrored into the bucket and the key recorded as `s3Key`
 alongside the original URL.
 
-Avatars have the same problem and are *not* yet fixed: `TicketArchiver` still
-stores only the avatar hash, next to a standing upstream
-`// TODO: save avatar in user/avatars/`. Mirroring those to S3 would be the
-natural follow-up, and is not done here.
+**Avatars.** Same idea, different failure mode. An avatar URL is unsigned and
+does not expire, but the hash stops resolving the moment the member changes
+their picture or deletes the account — so the archive does not rot on a timer,
+it rots when someone changes their profile, and nothing signals that. This
+replaces the standing upstream `// TODO: save avatar in user/avatars/`.
+
+`TicketArchiver.saveAvatar` mirrors the image and records the key in the
+existing `ArchivedUser.avatar` column, marked with an `s3:` prefix;
+[`src/lib/avatars.js`](../src/lib/avatars.js) encodes and decodes that. Reusing
+the column avoids a migration in all three provider directories that would
+collide with upstream's own migrations later, and costs nothing, because a
+mirrored key ends in `<hash>.webp` — `decodeAvatar` returns both the key and
+the hash, for values of either form.
+
+Three details worth knowing:
+
+- Avatars are content-addressed, so one object serves every ticket and message
+  that member appears in. An `ArchivedUser` row is upserted *per message*,
+  so without the `keyv` dedup cache the archiver would re-upload the same image
+  on every message.
+- They are mirrored at 128px. An archive thumbnail has no use for the 1024px
+  original.
+- `member.avatar` is the per-guild avatar and `member.user.avatar` the global
+  one, and they live at different CDN paths. Storing only the hash — as this
+  did before — left no way to tell which of the two it was, so the URL now
+  comes from `displayAvatarURL()`, which resolves it.
+
+Members on a *default* avatar have no hash and are skipped: those are a fixed
+set of six images shared by every such user.
+
+> **Nothing renders this yet.** `ArchivedUser.avatar` is written by the
+> archiver and read nowhere in `src/` — no transcript template uses it, and the
+> dashboard's `cdn.discordapp.com/avatars/...` URLs are built from the
+> logged-in user and the bot, not from `archivedUsers`. The value here is
+> archive fidelity: the bytes have to be captured *now* for any future viewer
+> or export consumer to have them at all, because by the time one exists the
+> hashes will have moved on. The ticket export API does return the field, so an
+> export consumer can resolve it with `decodeAvatar` plus `storage.presign`.
 
 That needed no Prisma migration: the attachment list already lives inside the
 encrypted JSON blob in `archivedMessages.content`, so adding a field is a
@@ -152,18 +186,22 @@ mirrored object is buffered in full:
 | `S3_ENDPOINT` | — | For S3-compatible stores (MinIO, R2); forces path-style addressing. |
 | `S3_PREFIX` | — | Key prefix. Multi-segment values keep their slashes. |
 | `S3_URL_EXPIRY` | `86400` | Presigned link lifetime, seconds. Clamped to 604800 (the SigV4 maximum). |
-| `S3_ARCHIVE_ATTACHMENTS` | `true` when a bucket is set | `false` keeps transcripts but stops mirroring. |
+| `S3_ARCHIVE_ATTACHMENTS` | `true` when a bucket is set | `false` keeps transcripts but stops mirroring attachments. |
+| `S3_ARCHIVE_AVATARS` | `true` when a bucket is set | `false` stores the bare avatar hash, as before this feature. |
 | `S3_MAX_ATTACHMENT_SIZE` | `8388608` | Largest attachment mirrored, bytes. |
 
 The bucket uses one prefix per concern, and the lifecycle rules in
 `tickets.tf` are written against exactly these names, so the two must agree:
 `db-dumps/` (Glacier IR at 30d, expire 365d), `transcripts/` (expire 30d —
-they can always be re-rendered) and `attachments/` (never expired, because
-they are the only durable copy).
+they can always be re-rendered), and `attachments/` and `avatars/` (never
+expired, because they are the only durable copy).
 
-`scripts/check-storage.js` covers the key building, the size caps and the
-concurrency gate with `fetch` stubbed, and runs as part of `npm test`. It does
-not exercise a real bucket.
+Three checks run as part of `npm test`, all with `fetch` stubbed and no real
+bucket involved: `check-avatars.js` (the column encoding),
+`check-storage.js` (key building, size caps, the concurrency gate) and
+`check-archiver.js` (`saveAvatar`'s fallbacks and its dedup cache — the latter
+loads the archiver with `src/lib/threads` stubbed out of the require cache,
+since requiring it for real spawns five worker pools).
 
 ## Backups
 

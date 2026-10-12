@@ -87,6 +87,17 @@ async function main() {
 	assert.strictEqual(s.buildKey('transcripts', 'f.txt'), 'env/prod/transcripts/f.txt');
 	ok('S3_PREFIX applied, slashes normalised');
 
+	// ── avatars ──────────────────────────────────────────────────────────────────
+	s = load({ S3_BUCKET: 'b' });
+	assert.strictEqual(s.archiveAvatars, true);
+	assert.strictEqual(load({}).archiveAvatars, false);
+	assert.strictEqual(load({
+		S3_ARCHIVE_AVATARS: 'false',
+		S3_BUCKET: 'b',
+	}).archiveAvatars, false);
+	ok('avatar mirroring follows S3_BUCKET and S3_ARCHIVE_AVATARS');
+
+
 	// ── mirror: size caps ────────────────────────────────────────────────────────
 	s = load({
 		S3_BUCKET: 'b',

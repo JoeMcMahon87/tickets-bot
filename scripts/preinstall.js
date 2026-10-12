@@ -35,6 +35,7 @@ const env = {
 	// archives survive Discord's CDN URLs expiring. Leave S3_BUCKET empty to
 	// keep everything local.
 	S3_ARCHIVE_ATTACHMENTS: '',
+	S3_ARCHIVE_AVATARS: '',
 	S3_BUCKET: '',
 	S3_ENDPOINT: '',
 	S3_MAX_ATTACHMENT_SIZE: '',

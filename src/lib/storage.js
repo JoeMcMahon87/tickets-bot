@@ -1,7 +1,7 @@
 /**
  * Optional S3 object storage.
  *
- * Two jobs, both of which fix a real problem rather than just moving bytes
+ * Three jobs, each fixing a real problem rather than just moving bytes
  * around:
  *
  *  1. Transcripts. `/transcript` renders the whole ticket in memory and sends
@@ -12,6 +12,10 @@
  *  2. Attachments. Archived messages store only Discord's CDN URL for each
  *     attachment, and those URLs expire — so old transcripts quietly rot.
  *     Mirroring the bytes to S3 makes the archive self-contained.
+ *
+ *  3. Avatars. Same idea, different failure: an avatar URL does not expire,
+ *     but its hash stops resolving once the member changes their picture.
+ *     See src/lib/avatars.js.
  *
  * Everything here is optional and off unless `S3_BUCKET` is set, so a
  * self-hoster with no AWS account is unaffected and this stays mergeable with
@@ -34,6 +38,14 @@ const enabled = !!bucket;
  * configured, since the expiring-URL problem it solves is silent.
  */
 const archiveAttachments = enabled && process.env.S3_ARCHIVE_ATTACHMENTS !== 'false';
+
+/**
+ * Whether to mirror member avatars. Defaults on when a bucket is configured.
+ *
+ * See src/lib/avatars.js for how the result is recorded, and why it is worth
+ * doing at all.
+ */
+const archiveAvatars = enabled && process.env.S3_ARCHIVE_AVATARS !== 'false';
 
 /**
  * Attachments larger than this are left as Discord URLs rather than mirrored.
@@ -234,6 +246,7 @@ async function mirror(url, key, {
 
 module.exports = {
 	archiveAttachments,
+	archiveAvatars,
 	bucket,
 	buildKey,
 	enabled,
