@@ -152,14 +152,43 @@ Three details worth knowing:
 Members on a *default* avatar have no hash and are skipped: those are a fixed
 set of six images shared by every such user.
 
-> **Nothing renders this yet.** `ArchivedUser.avatar` is written by the
-> archiver and read nowhere in `src/` — no transcript template uses it, and the
-> dashboard's `cdn.discordapp.com/avatars/...` URLs are built from the
-> logged-in user and the bot, not from `archivedUsers`. The value here is
-> archive fidelity: the bytes have to be captured *now* for any future viewer
-> or export consumer to have them at all, because by the time one exists the
-> hashes will have moved on. The ticket export API does return the field, so an
-> export consumer can resolve it with `decodeAvatar` plus `storage.presign`.
+### Rendering: where the mirroring pays off
+
+Mirroring bytes is only half the job — the transcript has to *use* them.
+[`src/lib/transcript.js`](../src/lib/transcript.js) resolves an archived
+ticket's media when a transcript is rendered: a mirrored attachment or avatar
+becomes a presigned URL, and anything unmirrored keeps its original Discord
+URL. Every path falls back, so a transcript is never worse than it was before
+mirroring existed.
+
+This moved the attachment and embed lines out of the transcript worker and
+into the main thread, because presigning needs the S3 client and the worker is
+a separate thread that exists to offload decryption. The worker now leaves
+`message.text` holding just the message body; the tails are appended in the
+same order and count it used to produce.
+
+It also sets `avatarUrl` on every archived user, which is what finally gives
+the avatar data a consumer — the shipped
+`src/user/templates/transcript.md.mustache` now links each participant's
+avatar as it was at the time.
+
+> **Updating an existing install's template.** `src/index.js` copies
+> `src/user/` into `./user/` with `force: false`, so a deployment that already
+> has `user/templates/transcript.md.mustache` keeps its own copy and will not
+> pick up the `{{ #avatarUrl }}` line. Copy it across by hand, or delete the
+> file and let the bot restore it on next boot. `avatarUrl` is set either way;
+> only the shipped template's use of it is new.
+
+**What presigned links in a transcript do and do not buy.** The URLs written
+into a given transcript *file* expire, exactly as the Discord URLs they
+replace did. The difference is that the objects behind them do not: a
+transcript regenerated six months later still has working links, whereas
+Discord's copy is long gone. Durability is in the bucket, not in the file.
+
+The dashboard still builds its avatar URLs from the logged-in user and the
+bot rather than from `archivedUsers`, so nothing there changes; the ticket
+export API returns the raw field, which an export consumer can resolve with
+`decodeAvatar` plus `storage.presign`.
 
 That needed no Prisma migration: the attachment list already lives inside the
 encrypted JSON blob in `archivedMessages.content`, so adding a field is a
@@ -196,12 +225,13 @@ The bucket uses one prefix per concern, and the lifecycle rules in
 they can always be re-rendered), and `attachments/` and `avatars/` (never
 expired, because they are the only durable copy).
 
-Three checks run as part of `npm test`, all with `fetch` stubbed and no real
-bucket involved: `check-avatars.js` (the column encoding),
-`check-storage.js` (key building, size caps, the concurrency gate) and
-`check-archiver.js` (`saveAvatar`'s fallbacks and its dedup cache — the latter
+Four checks run as part of `npm test`, all with `fetch` or `presign` stubbed
+and no real bucket involved: `check-avatars.js` (the column encoding),
+`check-storage.js` (key building, size caps, the concurrency gate),
+`check-archiver.js` (`saveAvatar`'s fallbacks and its dedup cache) and
+`check-transcript.js` (media resolution and its fallbacks). `check-archiver.js`
 loads the archiver with `src/lib/threads` stubbed out of the require cache,
-since requiring it for real spawns five worker pools).
+since requiring it for real spawns five worker pools.
 
 ## Backups
 

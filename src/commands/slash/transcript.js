@@ -11,6 +11,7 @@ const { AttachmentBuilder } = require('discord.js');
 const ExtendedEmbedBuilder = require('../../lib/embed');
 const { pools } = require('../../lib/threads');
 const storage = require('../../lib/storage');
+const { resolveTicketMedia } = require('../../lib/transcript');
 const ms = require('ms');
 
 const { transcript: pool } = pools;
@@ -69,6 +70,14 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 		const client = this.client;
 
 		ticket = await pool.queue(w => w(ticket));
+
+		// Turns mirrored attachments and avatars into presigned URLs, and
+		// appends the attachment/embed lines the worker no longer writes.
+		await resolveTicketMedia(ticket, {
+			enabled: storage.enabled,
+			log: client.log,
+			presign: storage.presign,
+		});
 
 		const channelName = ticket.category.channelName
 			.replace(/{+\s?(user)?name\s?}+/gi, ticket.createdBy?.username)

@@ -18,7 +18,7 @@
 {{ /ticket.feedback }}
 * Participants:
 {{ #ticket.archivedUsers }}
-  * "{{ displayName }}" @{{ username }}#{{ discriminator }} ({{ userId }})
+  * "{{ displayName }}" @{{ username }}#{{ discriminator }} ({{ userId }}){{ #avatarUrl }} [avatar]({{ . }}){{ /avatarUrl }}
 {{ /ticket.archivedUsers }}
 * Pinned messages: {{ #pinned }}{{ . }}{{ /pinned }}{{ ^pinned }}(none){{ /pinned }}
 
