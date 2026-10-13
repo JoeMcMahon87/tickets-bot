@@ -100,7 +100,7 @@ to get them.
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Deployer IAM user (open/close SSH only) |
 | `AWS_REGION` | Region of the shared instance |
 | `DISCORD_TOKEN` | Bot token — specific to this repo |
-| `DISCORD_SECRET` | OAuth2 client secret, for the dashboard login — specific to this repo |
+| `DISCORD_SECRET` | OAuth2 client secret — required by `src/env.js` even though the dashboard is only reachable over an SSH tunnel; it is what logs you into it |
 
 `ENCRYPTION_KEY` is **not** a GitHub secret. See above.
 
@@ -250,41 +250,61 @@ BACKUP_PREFIX=db-dumps   # optional
 BACKUP_KEEP=7            # optional, days of local dumps to keep
 ```
 
-## Still to do on the infrastructure side
+## The dashboard is never exposed publicly
 
-These belong in DiscordBotInfrastructure, not here:
+`src/http.js` serves a SvelteKit settings dashboard, and it cannot simply be
+switched off: there is **no settings slash command** — the 16 slash commands
+are all ticket operations — so categories, panels and staff roles exist only
+there, and without a category the bot cannot open a ticket at all.
 
-1. **A Node.js variant of `setup_bot`.** The current helper in `user_data.sh`
-   is Python-only — it hardcodes `python3.12 -m venv`. This bot needs
-   `nodejs22` (in the AL2023 repos) plus `bun` (the repo ships `bun.lock` and
-   no `package-lock.json`, so `npm ci` cannot work), and a unit with
-   `ExecStart=/usr/bin/node src/`, `WorkingDirectory=/opt/tickets-bot/app`.
-2. **`tickets.tf`** — notably smaller than `lizards.tf` since there is no
-   DynamoDB table: an S3 bucket (backups + transcripts) with lifecycle rules, a
-   CloudFront distribution for the dashboard, SSM parameters for
-   `ENCRYPTION_KEY`, and an IAM policy addition on the existing
-   `shared_bots_ec2` role.
-3. **Dashboard ingress.** `src/http.js` serves a SvelteKit dashboard, and
-   Discord OAuth needs a public HTTPS `HTTP_EXTERNAL`, but the shared security
-   group currently has *no* 443 ingress. CloudFront gives free TLS and is
-   effectively free at this volume; restrict the SG's 443 ingress to the
-   `com.amazonaws.global.cloudfront.origin-facing` managed prefix list. An ALB
-   would be ~$16/mo for the same job.
-4. **Memory headroom.** `src/lib/threads.js` eagerly spawns five reusable
+What it does not need is a public address. It binds to `127.0.0.1`
+(`HTTP_HOST=127.0.0.1`), nothing in the security group opens its port, and you
+reach it over an SSH tunnel when a guild needs configuring:
+
+```
+ssh -i <key> -L 8169:127.0.0.1:8169 ec2-user@<ec2-host>
+# then open http://localhost:8169
+```
+
+Discord exempts `http://localhost` from its HTTPS requirement for OAuth
+redirect URIs, so login works through the tunnel.
+`http://localhost:8169/auth/callback` is the only redirect that needs
+registering in the Discord application, and `HTTP_EXTERNAL` is set to
+`http://localhost:8169` to match. SSH comes from the `admin_cidr` the shared
+security group already allows. `HTTP_TRUST_PROXY` is `false`, since nothing
+sits in front of it.
+
+An earlier revision put a CloudFront distribution in front of it for free TLS
+and a public hostname. That was dropped: CloudFront can only reach this origin
+over plain HTTP — the instance has no certificate for its
+`compute.amazonaws.com` name, and CloudFront rejects self-signed origin
+certificates — so dashboard session cookies would have crossed the public
+internet in the clear. A tunnel avoids that completely and costs nothing. If
+the dashboard ever needs to be genuinely public, the way to do it is a domain
+plus either TLS terminated on the instance (Caddy/Let's Encrypt, origin
+`https-only`) or an ALB holding an ACM certificate (~$16/mo).
+
+## Still to do
+
+1. **Memory headroom.** `src/lib/threads.js` eagerly spawns five reusable
    worker pools at module load, each sized from `cpus().length`. On a 2-vCPU
-   `t4g.small` already running five Python bots that is tight — set
-   `CPU_LIMIT=1` in `.env` (read at `src/lib/threads.js:33`) and add swap.
-   Check actual free memory on the box before committing; budget a bump to
-   `t4g.medium` (~$27/mo) if it is thin.
-5. **A `tickets-backup.timer`** unit invoking `scripts/backup-s3.sh` daily.
-6. **Prisma on ARM64.** Engines resolve `linux-arm64-openssl-3.0.x`
-   automatically when generated on the instance, which is what the deploy does.
-   If `prisma generate` ever moves to the x86 runner, `binaryTargets` must be
-   set explicitly in the schema.
+   `t4g.small` already running five Python bots that is tight — the bootstrap
+   sets `CPU_LIMIT=1` (read at `src/lib/threads.js:33`) and adds a 2 GB
+   swapfile. Check actual free memory on the box; budget a bump to
+   `t4g.medium` (~$27/mo) if it is thin. This is the one assumption behind the
+   cost estimate below that has not been verified on the real instance.
+2. **Prisma on ARM64.** Engines resolve `linux-arm64-openssl-3.0.x`
+   automatically when generated on the instance, which is what the deploy
+   does. If `prisma generate` ever moves to the x86 runner, `binaryTargets`
+   must be set explicitly in the schema.
+3. **`terraform plan` has not been run** — it needs real credentials. It is
+   worth reading before the first apply, in particular to confirm that adding
+   an inline `ingress` block does not churn the shared security group.
 
 ## Cost
 
 Marginal cost of adding this bot to the existing fleet, assuming the shared
-instance has headroom: roughly **$0–2/month** (S3 and CloudFront pennies at
-this volume; $0 additional compute, or +$14/mo if the instance is bumped to
-`t4g.medium`). Figures are approximate — check current `eu-west-3` pricing.
+instance has headroom: roughly **$0–1/month** — S3 pennies at this volume,
+no CloudFront, no load balancer, no database instance, and $0 additional
+compute (or +$14/mo if the instance is bumped to `t4g.medium`). Figures are
+approximate; check current `eu-west-3` pricing.

@@ -7,9 +7,10 @@ name: Test and Deploy
 # service, close SSH again.
 #
 # The instance must already be bootstrapped by DiscordBotInfrastructure
-# (tickets.tf + bootstrap-tickets-bot.sh), which
-# creates /opt/tickets-bot, the `tickets-bot` system user and service, and
-# seeds /opt/tickets-bot/app/.env with the non-secret config.
+# (tickets.tf + bootstrap-tickets-bot.sh), which creates /opt/tickets-bot, the
+# `tickets-bot` system user and service, and seeds /opt/tickets-bot/app/.env
+# with the non-secret config and the encryption key. Deploying before that
+# happens fails at the ENCRYPTION_KEY guard below, by design.
 
 on:
   push:
