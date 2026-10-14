@@ -92,6 +92,7 @@ model Category {
     staffRoles      Json
     tickets         Ticket[]
     totalLimit      Int        @default(50)
+    transcriptChannel String?   @db.VarChar(19)
 
     @@map("categories")
 }

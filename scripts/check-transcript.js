@@ -19,6 +19,7 @@ const {
 	resolveAvatarUrl,
 	resolveTicketMedia,
 	resolveTranscriptChannel,
+	resolveTranscriptTarget,
 } = require(join(__dirname, '../src/lib/transcript'));
 
 let pass = 0;
@@ -242,6 +243,51 @@ async function main() {
 		null,
 	);
 	ok('resolution works without a logger');
+
+	// ── precedence: category field beats the config fallback ────────────────
+	const fallback = { transcripts: { onClose: '999999999999999999' } };
+
+	assert.strictEqual(
+		resolveTranscriptTarget({
+			category: { transcriptChannel: '111111111111111111' },
+			config: fallback,
+			guildId: '1',
+		}),
+		'111111111111111111',
+	);
+	ok('a category channel wins over the config fallback');
+
+	// Prisma gives null for an unset column; the dashboard can write '' when a
+	// field is cleared. Both mean "use the fallback", not "post nothing".
+	for (const transcriptChannel of [null, undefined, '']) {
+		assert.strictEqual(
+			resolveTranscriptTarget({
+				category: { transcriptChannel },
+				config: fallback,
+				guildId: '1',
+			}),
+			'999999999999999999',
+		);
+	}
+	assert.strictEqual(
+		resolveTranscriptTarget({
+			category: null,
+			config: fallback,
+			guildId: '1',
+		}),
+		'999999999999999999',
+	);
+	ok('an unset category channel falls back to config, however it is unset');
+
+	assert.strictEqual(
+		resolveTranscriptTarget({
+			category: { transcriptChannel: null },
+			config: {},
+			guildId: '1',
+		}),
+		null,
+	);
+	ok('neither set: posts nothing');
 
 	console.log(`\n[check-transcript] ${pass} checks passed`);
 }

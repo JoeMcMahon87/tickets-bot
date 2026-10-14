@@ -111,6 +111,7 @@ module.exports.patch = fastify => ({
 			requiredRoles: true,
 			staffRoles: true,
 			totalLimit: true,
+			transcriptChannel: true,
 		};
 
 		const original = req.params.category && await client.prisma.category.findUnique({

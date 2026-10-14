@@ -161,10 +161,38 @@ function resolveTranscriptChannel(config, guildId, log) {
 	return null;
 }
 
+/**
+ * Where a closed ticket's transcript should go.
+ *
+ * A category's own `transcriptChannel` wins, so different kinds of ticket can
+ * be archived apart; `transcripts.onClose` in config.yml is the fallback for
+ * categories that have not set one. Returning null means post nothing.
+ *
+ * @param {object} options
+ * @param {object?} options.category the ticket's category row
+ * @param {object} options.config the client config
+ * @param {string} options.guildId
+ * @param {{warn: function}?} options.log
+ * @returns {string?}
+ */
+function resolveTranscriptTarget({
+	category,
+	config,
+	guildId,
+	log,
+}) {
+	// Prisma gives null for an unset column, and the dashboard can write an
+	// empty string when a field is cleared.
+	const own = category?.transcriptChannel;
+	if (own) return String(own);
+	return resolveTranscriptChannel(config, guildId, log);
+}
+
 module.exports = {
 	DISCORD_CDN,
 	resolveAttachmentUrl,
 	resolveAvatarUrl,
 	resolveTicketMedia,
 	resolveTranscriptChannel,
+	resolveTranscriptTarget,
 };
