@@ -310,6 +310,31 @@ delegates to it. Posting happens last in `finallyClose`, unawaited and with
 its own error handling: the ticket is already closed by then, and rendering a
 transcript must not be able to interrupt that.
 
+## Anonymous stats reporting is off
+
+`stats: false` in `src/user/config.yml`. Upstream posts anonymous usage figures
+to its Houston service on boot and every 12 hours; this fork does not.
+
+It was also failing on every run here with `the response couldn't be parsed:
+res.json is not a function` — immediately after upstream's own handler logs
+`The following error is not important and can be safely ignored` — so its only
+visible effect was a stack trace in the journal twice a day.
+
+Nothing else changes: the averages in the bot's presence and in transcripts
+come from `src/lib/stats.js` and its worker pool, which are not gated on this
+setting.
+
+**An existing install keeps its own value.** `src/index.js` copies
+`src/user/` with `force: false`, so a deployment that already has
+`user/config.yml` is unaffected by the shipped default. To turn it off on a
+running instance:
+
+```
+sudo -u tickets-bot sed -i 's/^stats: true$/stats: false/' \
+  /opt/tickets-bot/app/user/config.yml
+sudo systemctl restart tickets-bot
+```
+
 ## Backups
 
 [`scripts/backup-s3.sh`](../scripts/backup-s3.sh) runs the repo's own
