@@ -1,5 +1,19 @@
 name: Publish Docker image
 
+# Disabled in this fork. The job below is guarded on the repository, so it
+# still runs for upstream and is skipped everywhere else.
+#
+# It was failing on every branch push: the `push` trigger has no branch filter,
+# and the Docker Hub login reads secrets.DOCKER_USERNAME / DOCKER_TOKEN, which
+# are eartharoid's and do not exist here. On pull_request the login steps are
+# skipped, so it got as far as building two platforms under QEMU instead --
+# several minutes of work for an image this fork never uses, since it deploys
+# from source with deploy.yml.
+#
+# Guarding rather than deleting the file keeps the diff against upstream to one
+# line, and keeps the workflow intact should this fork ever want to publish its
+# own image: swap the condition for the fork's own name and set the secrets.
+
 on:
   push:
     # branches:
@@ -13,6 +27,8 @@ on:
 jobs:
   push_to_registries:
     name: Push Docker image to multiple registries
+    # Upstream only; a skipped job reports neutral rather than failing.
+    if: github.repository == 'discord-tickets/bot'
     runs-on: ubuntu-latest
     permissions:
       packages: write
