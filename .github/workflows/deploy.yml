@@ -107,6 +107,13 @@ jobs:
       # stable forever: if it changes, every archived ticket, transcript and
       # feedback comment already in the database becomes permanently
       # undecryptable. Only the rotatable Discord credentials are injected.
+      #
+      # Every command that touches .env goes through sudo. The file is 0600 and
+      # owned by the bot user, and this runs as ec2-user: without sudo, `grep`
+      # fails with EACCES, which is indistinguishable from a missing key and
+      # makes the guard below report the wrong cause. (`test -s` happens to
+      # pass unprivileged, since stat only needs directory traversal, so the
+      # inconsistency is invisible until the grep runs.)
       - name: Write Discord secrets to EC2
         run: |
           # Written to a file and SCP'd rather than passed as SSH arguments,
@@ -126,8 +133,8 @@ jobs:
             -o ConnectTimeout=30 \
             ec2-user@${{ secrets.EC2_HOST }} \
             "set -e; \
-             test -s ${{ env.BOT_DIR }}/app/.env || { echo 'ERROR: .env missing or empty; run the infra bootstrap first' >&2; exit 1; }; \
-             grep -q '^ENCRYPTION_KEY=.\\+' ${{ env.BOT_DIR }}/app/.env || { echo 'ERROR: ENCRYPTION_KEY not seeded in .env; refusing to deploy' >&2; exit 1; }; \
+             sudo test -s ${{ env.BOT_DIR }}/app/.env || { echo 'ERROR: .env missing or empty; run the infra bootstrap first' >&2; exit 1; }; \
+             sudo grep -q '^ENCRYPTION_KEY=.\\+' ${{ env.BOT_DIR }}/app/.env || { echo 'ERROR: ENCRYPTION_KEY not seeded in .env; refusing to deploy' >&2; exit 1; }; \
              sudo sed -i '/^DISCORD_TOKEN=/d;/^DISCORD_SECRET=/d' ${{ env.BOT_DIR }}/app/.env; \
              sudo tee -a ${{ env.BOT_DIR }}/app/.env < /tmp/tickets_secrets.env > /dev/null; \
              rm -f /tmp/tickets_secrets.env; \
