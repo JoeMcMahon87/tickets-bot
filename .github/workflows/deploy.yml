@@ -153,6 +153,18 @@ jobs:
           BOT_USER=tickets-bot
           APP="$BOT_DIR/app"
 
+          # Stop the bot before touching the database. `prisma migrate deploy`
+          # takes an exclusive lock to initialise _prisma_migrations, and a
+          # running bot holds SQLite connections that make it fail with
+          # "database is locked" — intermittently when there is nothing to
+          # migrate, and reliably when there is.
+          sudo systemctl stop tickets-bot
+
+          # Bring it back however this script exits. A failed install or
+          # migration leaves the previous code running, which beats leaving the
+          # bot down until someone notices.
+          trap 'sudo systemctl start tickets-bot || true' EXIT
+
           # `user/` holds the SQLite database, config.yml, transcript templates
           # and dumps. It is runtime state and must survive deploys, so the
           # tarball never contains it — src/index.js copies in any new default
@@ -162,6 +174,10 @@ jobs:
 
           # CI=true stops scripts/preinstall from writing a .env (and with it a
           # fresh ENCRYPTION_KEY). The real .env is already in place.
+          #
+          # bun runs the package's own postinstall as part of this, which is
+          # already prisma generate + migrate deploy; the explicit run below is
+          # idempotent and does not depend on that staying true.
           sudo -u "$BOT_USER" env CI=true HOME="$BOT_DIR" \
             bash -c "cd '$APP' && bun install --production --frozen-lockfile"
 
@@ -170,8 +186,8 @@ jobs:
           sudo -u "$BOT_USER" env HOME="$BOT_DIR" \
             bash -c "cd '$APP' && node scripts/postinstall"
 
-          sudo systemctl restart tickets-bot
           rm -f /tmp/tickets-app.tar.gz
+          # The trap starts the bot; the next step waits for it to be healthy.
           ENDSSH
 
       # systemctl returning "active" only means the process started; the bot
