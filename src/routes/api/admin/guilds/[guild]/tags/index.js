@@ -1,5 +1,6 @@
 const ms = require('ms');
 const { logAdminEvent } = require('../../../../../../lib/logging');
+const tagSchema = require('../../../../../../schemas/tag.js');
 
 module.exports.get = fastify => ({
 	handler: async req => {
@@ -62,4 +63,5 @@ module.exports.post = fastify => ({
 		return tag;
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
+	schema: { body: tagSchema.create },
 });

@@ -1,6 +1,7 @@
 const { logAdminEvent } = require('../../../../../../../lib/logging');
 const { updateStaffRoles } = require('../../../../../../../lib/users');
 const { ApplicationCommandPermissionType } = require('discord.js');
+const categorySchema = require('../../../../../../../schemas/category.js');
 
 module.exports.delete = fastify => ({
 	handler: async (req, res) => {
@@ -192,4 +193,5 @@ module.exports.patch = fastify => ({
 		return category;
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
+	schema: { body: categorySchema.patch },
 });

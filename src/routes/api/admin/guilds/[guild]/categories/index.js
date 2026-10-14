@@ -6,6 +6,7 @@ const {
 	ChannelType: { GuildCategory },
 } = require('discord.js');
 const ms = require('ms');
+const categorySchema = require('../../../../../../schemas/category.js');
 const {
 	getAverageTimes, getAverageRating,
 } = require('../../../../../../lib/stats');
@@ -168,4 +169,5 @@ module.exports.post = fastify => ({
 		return category;
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
+	schema: { body: categorySchema.create },
 });
