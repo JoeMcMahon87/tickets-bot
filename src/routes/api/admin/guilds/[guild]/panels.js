@@ -12,6 +12,7 @@ const {
 } = require('discord.js');
 const emoji = require('node-emoji');
 const { logAdminEvent } = require('../../../../../lib/logging');
+const panelSchema = require('../../../../../schemas/panel.js');
 
 module.exports.post = fastify => ({
 	handler: async (req, res) => {
@@ -185,4 +186,5 @@ module.exports.post = fastify => ({
 		return true;
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
+	schema: { body: panelSchema },
 });

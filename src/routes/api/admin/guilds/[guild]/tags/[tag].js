@@ -1,5 +1,6 @@
 const ms = require('ms');
 const { logAdminEvent } = require('../../../../../../lib/logging');
+const tagSchema = require('../../../../../../schemas/tag.js');
 
 module.exports.delete = fastify => ({
 	handler: async (req, res) => {
@@ -103,4 +104,5 @@ module.exports.patch = fastify => ({
 		return tag;
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
+	schema: { body: tagSchema.patch },
 });

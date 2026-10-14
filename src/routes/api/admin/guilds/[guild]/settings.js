@@ -1,5 +1,6 @@
 const { logAdminEvent } = require('../../../../../lib/logging.js');
 const { Colors } = require('discord.js');
+const guildSchema = require('../../../../../schemas/guild.js');
 
 module.exports.get = fastify => ({
 	handler: async req => {
@@ -59,4 +60,5 @@ module.exports.patch = fastify => ({
 		return settings;
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
+	schema: { body: guildSchema },
 });
