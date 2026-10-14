@@ -107,6 +107,24 @@ config = client.config;
 log = client.log;
 
 // start the bot and then the web server
-client.login().then(() => {
-	http(client);
-});
+client.login()
+	.then(() => {
+		http(client);
+	})
+	.catch(error => {
+		// Without this, a failed login leaves the process running and idle:
+		// the `uncaughtException` handler above logs the rejection and
+		// deliberately does not exit, and the web server is never started
+		// because it is chained off this promise. systemd sees a live
+		// process and never restarts it, so the bot reports healthy while
+		// being connected to nothing and listening on nothing.
+		//
+		// Discord rejects here on fatal close codes — disallowed intents, an
+		// invalid or revoked token — and transiently when the gateway is
+		// unreachable at boot. Exiting non-zero is right for both: the
+		// transient case is retried by `Restart=on-failure`, and the fatal
+		// case is surfaced instead of hidden.
+		log.notice('Failed to log in to Discord, exiting');
+		log.error(error);
+		process.exit(1);
+	});
