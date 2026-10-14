@@ -4,17 +4,14 @@ const {
 	PermissionsBitField,
 	MessageFlags,
 } = require('discord.js');
-const fs = require('fs');
-const { join } = require('path');
-const Mustache = require('mustache');
 const { AttachmentBuilder } = require('discord.js');
 const ExtendedEmbedBuilder = require('../../lib/embed');
-const { pools } = require('../../lib/threads');
 const storage = require('../../lib/storage');
-const { resolveTicketMedia } = require('../../lib/transcript');
+const {
+	TRANSCRIPT_INCLUDE,
+	renderTranscript,
+} = require('../../lib/tickets/transcript');
 const ms = require('ms');
-
-const { transcript: pool } = pools;
 
 module.exports = class TranscriptSlashCommand extends SlashCommand {
 	constructor(client, options) {
@@ -45,12 +42,6 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 				return option;
 			}),
 		});
-
-		Mustache.escape = text => text; // don't HTML-escape
-		this.template = fs.readFileSync(
-			join('./user/templates/', this.client.config.templates.transcript + '.mustache'),
-			{ encoding: 'utf8' },
-		);
 	}
 
 	shouldAllowAccess(interaction, ticket) {
@@ -66,56 +57,7 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 	}
 
 	async fillTemplate(ticket) {
-		/** @type {import("client")} */
-		const client = this.client;
-
-		ticket = await pool.queue(w => w(ticket));
-
-		// Turns mirrored attachments and avatars into presigned URLs, and
-		// appends the attachment/embed lines the worker no longer writes.
-		await resolveTicketMedia(ticket, {
-			enabled: storage.enabled,
-			log: client.log,
-			presign: storage.presign,
-		});
-
-		const channelName = ticket.category.channelName
-			.replace(/{+\s?(user)?name\s?}+/gi, ticket.createdBy?.username)
-			.replace(/{+\s?(nick|display)(name)?\s?}+/gi, ticket.createdBy?.displayName)
-			.replace(/{+\s?num(ber)?\s?}+/gi, ticket.number);
-		const fileName = `${channelName}.${this.client.config.templates.transcript.split('.').slice(-1)[0]}`;
-		const transcript = Mustache.render(this.template, {
-			channelName,
-			closedAtFull: function () {
-				return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-					dateStyle: 'full',
-					timeStyle: 'long',
-					timeZone: 'Etc/UTC',
-				}).format(this.closedAt);
-			},
-			createdAtFull: function () {
-				return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-					dateStyle: 'full',
-					timeStyle: 'long',
-					timeZone: 'Etc/UTC',
-				}).format(this.createdAt);
-			},
-			createdAtTimestamp: function () {
-				return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-					dateStyle: 'short',
-					timeStyle: 'long',
-					timeZone: 'Etc/UTC',
-				}).format(this.createdAt);
-			},
-			guildName: client.guilds.cache.get(ticket.guildId)?.name,
-			pinned: ticket.pinnedMessageIds.join(', '),
-			ticket,
-		});
-
-		return {
-			fileName,
-			transcript,
-		};
+		return await renderTranscript(this.client, ticket);
 	}
 
 	/**
@@ -128,22 +70,7 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		ticketId = ticketId || interaction.options.getString('ticket', true);
 		const ticket = await client.prisma.ticket.findUnique({
-			include: {
-				archivedChannels: true,
-				archivedMessages: {
-					orderBy: { createdAt: 'asc' },
-					where: { external: false },
-				},
-				archivedRoles: true,
-				archivedUsers: true,
-				category: true,
-				claimedBy: true,
-				closedBy: true,
-				createdBy: true,
-				feedback: true,
-				guild: true,
-				questionAnswers: { include: { question: true } },
-			},
+			include: TRANSCRIPT_INCLUDE,
 			where: interaction.guildId && ticketId.length < 16
 				? {
 					guildId_number: {

@@ -441,6 +441,12 @@ modals:
   topic:
     label: Topic
     placeholder: What is this ticket about?
+transcripts:
+  archive:
+    opened_by: Opened by
+    title: 📄 Ticket transcript
+    too_large: "This transcript is too large to attach. Use `/transcript {number}` to download it."
+    too_large_link: "This transcript is too large to attach. [Download `{fileName}`]({url})."
 ticket:
   answers:
     no_value: "*No response*"

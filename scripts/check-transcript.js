@@ -18,6 +18,7 @@ const {
 	resolveAttachmentUrl,
 	resolveAvatarUrl,
 	resolveTicketMedia,
+	resolveTranscriptChannel,
 } = require(join(__dirname, '../src/lib/transcript'));
 
 let pass = 0;
@@ -184,6 +185,63 @@ async function main() {
 	await resolveTicketMedia(plain, resolver());
 	assert.strictEqual(plain.archivedMessages[0].text, 'hello');
 	ok('a message with no media is untouched');
+
+	// ── the archive channel setting ──────────────────────────────────────────
+	const warnings2 = [];
+	const log = { warn: (...args) => warnings2.push(args) };
+
+	// Unset, in every shape config.yml can produce.
+	for (const config of [{}, { transcripts: {} }, { transcripts: { onClose: null } }, { transcripts: { onClose: '' } }, undefined]) {
+		assert.strictEqual(resolveTranscriptChannel(config, '1', log), null);
+	}
+	ok('no archive channel configured: resolves to null');
+
+	assert.strictEqual(
+		resolveTranscriptChannel({ transcripts: { onClose: '123456789012345678' } }, '999', log),
+		'123456789012345678',
+	);
+	ok('a single channel applies to every guild');
+
+	const perGuild = {
+		transcripts: {
+			onClose: {
+				'111111111111111111': '222222222222222222',
+				'333333333333333333': '444444444444444444',
+			},
+		},
+	};
+	assert.strictEqual(resolveTranscriptChannel(perGuild, '111111111111111111', log), '222222222222222222');
+	assert.strictEqual(resolveTranscriptChannel(perGuild, '333333333333333333', log), '444444444444444444');
+	// A guild with no entry posts nothing, rather than falling back to another
+	// guild's channel.
+	assert.strictEqual(resolveTranscriptChannel(perGuild, '555555555555555555', log), null);
+	ok('per-guild map resolves per guild, with no cross-guild fallback');
+
+	// An unquoted ID in YAML is a number, and a snowflake does not survive a
+	// double -- so the value is not the ID that was written. Refuse it loudly
+	// rather than look for a channel that cannot exist.
+	warnings2.length = 0;
+	assert.strictEqual(
+		resolveTranscriptChannel({ transcripts: { onClose: Number('123456789012345678') } }, '1', log),
+		null,
+	);
+	assert.strictEqual(warnings2.length, 1);
+	assert.match(warnings2[0][0], /must be quoted/);
+
+	warnings2.length = 0;
+	assert.strictEqual(
+		resolveTranscriptChannel({ transcripts: { onClose: { '111': Number('123456789012345678') } } }, '111', log),
+		null,
+	);
+	assert.strictEqual(warnings2.length, 1);
+	ok('an unquoted snowflake is refused with a warning, not silently wrong');
+
+	// The warning must not require a logger to be passed.
+	assert.strictEqual(
+		resolveTranscriptChannel({ transcripts: { onClose: Number('123456789012345678') } }, '1'),
+		null,
+	);
+	ok('resolution works without a logger');
 
 	console.log(`\n[check-transcript] ${pass} checks passed`);
 }

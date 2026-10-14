@@ -35,4 +35,21 @@ presence:
 stats: true
 templates:
   transcript: transcript.md
+transcripts:
+  # Post a ticket's transcript to a channel when it is closed.
+  #
+  # QUOTE THE ID. A bare Discord ID is read as a number, and snowflakes are
+  # too large for one to hold exactly, so an unquoted value is silently not
+  # the channel you typed. The bot refuses it and warns rather than hunting
+  # for a channel that cannot exist.
+  #
+  # One channel for every guild:
+  #   onClose: "123456789012345678"
+  # or one per guild, keyed by guild ID:
+  #   onClose:
+  #     "987654321098765432": "123456789012345678"
+  #
+  # The bot needs View Channel, Send Messages, Embed Links and Attach Files
+  # there. Leave it null to post nothing.
+  onClose: null
 updates: true

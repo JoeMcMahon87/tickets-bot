@@ -22,6 +22,7 @@ const { Collection } = require('discord.js');
 const spacetime = require('spacetime');
 
 const { getSUID } = require('../logging');
+const { postClosedTranscript } = require('./transcript');
 const {
 	getAverageTimes, getAverageRating,
 } = require('../stats');
@@ -1401,6 +1402,15 @@ module.exports = class TicketManager {
 			},
 			userId: closedBy || this.client.user.id,
 		});
+
+		// Archive channel, if one is configured. Deliberately not awaited and
+		// swallowed on failure: the ticket is already closed, and rendering a
+		// transcript must not be able to undo or interrupt that.
+		postClosedTranscript(this.client, ticket)
+			.catch(error => {
+				this.client.log.warn('Failed to post transcript for ticket %s', ticket.id);
+				this.client.log.error(error);
+			});
 
 	}
 };

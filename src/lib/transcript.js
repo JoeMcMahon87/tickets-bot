@@ -112,9 +112,59 @@ async function resolveTicketMedia(ticket, resolver) {
 	return ticket;
 }
 
+/**
+ * Which channel, if any, closed tickets' transcripts should be posted to.
+ *
+ * Configured in `user/config.yml` rather than the database, because the
+ * dashboard is a separate published package that cannot be taught a new
+ * field — a per-guild column would be unreachable from the UI and settable
+ * only by hand in SQL.
+ *
+ *   transcripts:
+ *     onClose: "123456789012345678"          # the same channel everywhere
+ *     onClose:                                # or one per guild
+ *       "987654321098765432": "123456789012345678"
+ *
+ * @param {object} config the client config
+ * @param {string} guildId
+ * @param {{warn: function}?} log
+ * @returns {string?} a channel ID, or null when not configured
+ */
+function resolveTranscriptChannel(config, guildId, log) {
+	const setting = config?.transcripts?.onClose;
+
+	if (setting === null || setting === undefined || setting === '') return null;
+
+	// A bare Discord ID in YAML parses as a number, and snowflakes are past
+	// the point where a double holds them exactly — so the value read back is
+	// not the ID that was written, and the channel simply never resolves.
+	// Refusing loudly beats looking for a channel that cannot exist.
+	if (typeof setting === 'number') {
+		log?.warn(
+			'transcripts.onClose in config.yml must be quoted: %s has already lost precision as a number',
+			String(setting),
+		);
+		return null;
+	}
+
+	if (typeof setting === 'string') return setting;
+
+	if (typeof setting === 'object') {
+		const forGuild = setting[guildId];
+		if (typeof forGuild === 'number') {
+			log?.warn('transcripts.onClose["%s"] in config.yml must be quoted', guildId);
+			return null;
+		}
+		return forGuild || null;
+	}
+
+	return null;
+}
+
 module.exports = {
 	DISCORD_CDN,
 	resolveAttachmentUrl,
 	resolveAvatarUrl,
 	resolveTicketMedia,
+	resolveTranscriptChannel,
 };

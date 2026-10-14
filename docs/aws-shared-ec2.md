@@ -233,6 +233,48 @@ and no real bucket involved: `check-avatars.js` (the column encoding),
 loads the archiver with `src/lib/threads` stubbed out of the require cache,
 since requiring it for real spawns five worker pools.
 
+## Transcript archive channel
+
+Closed tickets can have their transcript posted to a channel, set in
+`user/config.yml`:
+
+```yaml
+transcripts:
+  onClose: "123456789012345678"      # the same channel for every guild
+  # or, keyed by guild ID:
+  # onClose:
+  #   "987654321098765432": "123456789012345678"
+```
+
+**Quote the ID.** A bare Discord ID parses as a YAML number, and a snowflake
+is past the point where a double holds one exactly — so the value read back is
+not the ID that was typed, and the channel can never resolve. The bot detects
+that case and warns rather than searching for a channel that cannot exist.
+
+The bot needs View Channel, Send Messages, Embed Links and Attach Files in
+that channel. `null` (the default) posts nothing, so this is off unless asked
+for.
+
+The transcript is **attached as a file**, not linked — a presigned link
+expires, which would leave an archive channel full of dead URLs within a day.
+A transcript over 8 MiB cannot be attached; those fall back to a presigned
+link when object storage is configured, and otherwise to a note pointing at
+`/transcript`.
+
+This setting lives in `config.yml` rather than the database because the
+dashboard is a separate published package that cannot be taught a new field —
+a per-guild column would be unreachable from the UI and settable only by hand
+in SQL. The trade-off is that changing it means editing the file on the
+instance; `user/` is runtime state that deploys never overwrite.
+
+Rendering moved out of the `/transcript` command into
+[`src/lib/tickets/transcript.js`](../src/lib/tickets/transcript.js) so the
+close path reuses it rather than carrying a second copy of the query,
+decryption hand-off, media resolution and template render. The command now
+delegates to it. Posting happens last in `finallyClose`, unawaited and with
+its own error handling: the ticket is already closed by then, and rendering a
+transcript must not be able to interrupt that.
+
 ## Backups
 
 [`scripts/backup-s3.sh`](../scripts/backup-s3.sh) runs the repo's own
