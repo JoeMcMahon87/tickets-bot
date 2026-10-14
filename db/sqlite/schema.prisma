@@ -92,6 +92,7 @@ model Category {
     staffRoles      String
     tickets         Ticket[]
     totalLimit      Int        @default(50)
+    transcriptChannel String?
 
     @@map("categories")
 }

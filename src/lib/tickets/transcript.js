@@ -20,7 +20,7 @@ const ExtendedEmbedBuilder = require('../embed');
 const storage = require('../storage');
 const {
 	resolveTicketMedia,
-	resolveTranscriptChannel,
+	resolveTranscriptTarget,
 } = require('../transcript');
 const { pools } = require('../threads');
 
@@ -151,9 +151,9 @@ async function renderTranscript(client, ticket) {
 /**
  * Post a closed ticket's transcript to the configured archive channel.
  *
- * Does nothing unless `transcripts.onClose` names a channel in config.yml.
- * Called from the close path and never awaited there: a ticket must close
- * whatever happens here.
+ * Does nothing unless the ticket's category names a channel, or
+ * `transcripts.onClose` in config.yml does. Called from the close path and
+ * never awaited there: a ticket must close whatever happens here.
  *
  * The transcript is attached as a file rather than linked, because a link is
  * presigned and expires, which would leave an archive channel full of dead
@@ -165,18 +165,22 @@ async function renderTranscript(client, ticket) {
  * @returns {Promise<void>}
  */
 async function postClosedTranscript(client, closedTicket) {
-	const channelId = resolveTranscriptChannel(
-		client.config,
-		closedTicket.guildId,
-		client.log,
-	);
+	// finallyClose includes the category, so the per-category channel is
+	// already here; config.yml is only consulted when it is unset.
+	const channelId = resolveTranscriptTarget({
+		category: closedTicket.category,
+		config: client.config,
+		guildId: closedTicket.guildId,
+		log: client.log,
+	});
 	if (!channelId) return;
 
 	const channel = client.channels.cache.get(channelId);
 	if (!channel) {
 		client.log.warn(
-			'transcripts.onClose names channel %s, which this bot cannot see',
+			'Transcript channel %s for guild %s is not visible to this bot',
 			channelId,
+			closedTicket.guildId,
 		);
 		return;
 	}

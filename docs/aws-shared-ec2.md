@@ -235,8 +235,43 @@ since requiring it for real spawns five worker pools.
 
 ## Transcript archive channel
 
-Closed tickets can have their transcript posted to a channel, set in
-`user/config.yml`:
+Closed tickets can have their transcript posted to a channel. It is resolved
+per ticket, category first:
+
+1. the ticket's **category** `transcriptChannel`, set on the page below;
+2. otherwise `transcripts.onClose` in `user/config.yml`, the server-wide
+   fallback;
+3. otherwise nothing is posted.
+
+### Per category
+
+Open **`http://localhost:8169/transcripts/<guild id>`** through the SSH tunnel,
+after logging into the dashboard — the same session cookie authorises both. It
+lists every category with a channel picker and saves through the existing
+category API.
+
+It is a page of our own rather than a field in the stock category editor
+because `@discord-tickets/settings` publishes only its build output: teaching
+that form a new field would mean forking it, learning its SvelteKit build, and
+rebuilding on every upstream release. This page is served by our own fastify
+instance at `src/routes/transcripts/[guild].js`, on the same origin and behind
+the same login, and it adds no write path of its own — it drives
+`PATCH /api/admin/guilds/:guild/categories/:id`.
+
+The field itself is `Category.transcriptChannel`, added by the migration
+`20261014150000_category_transcript_channel` in all three provider
+directories. That is the first schema change in this fork; everything before
+it was deliberately shaped to avoid one. It was unavoidable here — there was
+no existing column to reuse, and the value genuinely belongs per category —
+but it does mean a conflict is possible if upstream ever adds a migration with
+an overlapping timestamp.
+
+A channel the bot can no longer see stays visible in the picker, marked, so a
+save cannot silently clear it. Only changed rows are sent.
+
+### Server-wide fallback
+
+In `user/config.yml`:
 
 ```yaml
 transcripts:
