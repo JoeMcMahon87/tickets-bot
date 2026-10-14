@@ -32,7 +32,19 @@ presence:
       type: 3
   interval: 20
   status: online
-stats: true
+# Anonymous usage reporting to Houston, upstream's stats service at
+# discordtickets.app. Off in this fork.
+#
+# It is a POST on boot and every 12 hours. It has also been erroring on every
+# run here -- "the response couldn't be parsed: res.json is not a function" --
+# which upstream's own handler prefaces with "The following error is not
+# important and can be safely ignored", so the only thing it produced was a
+# stack trace in the journal twice a day.
+#
+# This disables nothing else. The averages shown in the bot's presence and in
+# transcripts come from src/lib/stats.js and its worker pool, which are not
+# gated on this setting.
+stats: false
 templates:
   transcript: transcript.md
 transcripts:
