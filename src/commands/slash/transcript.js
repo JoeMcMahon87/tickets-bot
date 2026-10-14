@@ -10,6 +10,9 @@ const Mustache = require('mustache');
 const { AttachmentBuilder } = require('discord.js');
 const ExtendedEmbedBuilder = require('../../lib/embed');
 const { pools } = require('../../lib/threads');
+const storage = require('../../lib/storage');
+const { resolveTicketMedia } = require('../../lib/transcript');
+const ms = require('ms');
 
 const { transcript: pool } = pools;
 
@@ -67,6 +70,14 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 		const client = this.client;
 
 		ticket = await pool.queue(w => w(ticket));
+
+		// Turns mirrored attachments and avatars into presigned URLs, and
+		// appends the attachment/embed lines the worker no longer writes.
+		await resolveTicketMedia(ticket, {
+			enabled: storage.enabled,
+			log: client.log,
+			presign: storage.presign,
+		});
 
 		const channelName = ticket.category.channelName
 			.replace(/{+\s?(user)?name\s?}+/gi, ticket.createdBy?.username)
@@ -165,6 +176,43 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 			fileName,
 			transcript,
 		} = await this.fillTemplate(ticket);
+
+		// Prefer a presigned S3 link when object storage is configured: a busy
+		// ticket can render past Discord's upload limit, at which point
+		// attaching the file fails outright. Any failure here falls through to
+		// the attachment, because a transcript delivered the old way beats no
+		// transcript at all.
+		if (storage.enabled) {
+			try {
+				const key = storage.buildKey('transcripts', ticket.guildId, ticket.id, fileName);
+				await storage.put({
+					body: Buffer.from(transcript),
+					contentType: 'text/plain; charset=utf-8',
+					key,
+				});
+				const url = await storage.presign(key, { filename: fileName });
+				const getMessage = client.i18n.getLocale(ticket.guild.locale);
+				return await interaction.editReply({
+					embeds: [
+						new ExtendedEmbedBuilder({
+							iconURL: interaction.guild?.iconURL(),
+							text: ticket.guild.footer,
+						})
+							.setColor(ticket.guild.primaryColour)
+							.setTitle(getMessage('commands.slash.transcript.link.title'))
+							.setDescription(getMessage('commands.slash.transcript.link.description', {
+								expiry: ms(storage.urlExpiry * 1000, { long: true }),
+								fileName,
+								url,
+							})),
+					],
+				});
+			} catch (error) {
+				client.log.warn('Failed to upload transcript for ticket %s, falling back to attachment', ticket.id);
+				client.log.error(error);
+			}
+		}
+
 		const attachment = new AttachmentBuilder()
 			.setFile(Buffer.from(transcript))
 			.setName(fileName);

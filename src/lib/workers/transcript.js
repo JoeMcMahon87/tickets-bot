@@ -20,8 +20,10 @@ function getTranscript(ticket) {
 		message.author = ticket.archivedUsers.find(u => u.userId === message.authorId);
 		message.content = JSON.parse(decrypt(message.content));
 		message.text = message.content.content?.replace(/\n/g, '\n\t') ?? '';
-		message.content.attachments?.forEach(a => (message.text += '\n\t' + a.url));
-		message.content.embeds?.forEach(() => (message.text += '\n\t[embedded content]'));
+		// The attachment and embed lines are appended by the caller, in
+		// src/lib/transcript.js: a mirrored attachment is served through a
+		// presigned URL, and presigning needs the S3 client, which lives on
+		// the main thread. `message.content` carries what it needs.
 		message.number = 'M' + String(i + 1).padStart(ticket.archivedMessages.length.toString().length, '0');
 		ticket.archivedMessages[i] = message;
 	});

@@ -1,0 +1,208 @@
+name: Test and Deploy
+
+# Deploys the bot to the shared Discord-bots EC2 instance managed by
+# DiscordBotInfrastructure. Mirrors the deploy methodology used by the other
+# bots on that instance (LizardsColosseum, GronkGameBot, Innkeeper, ...):
+# temporarily open SSH for the runner, ship the code, restart the systemd
+# service, close SSH again.
+#
+# The instance must already be bootstrapped by DiscordBotInfrastructure
+# (tickets.tf + bootstrap-tickets-bot.sh), which creates /opt/tickets-bot, the
+# `tickets-bot` system user and service, and seeds /opt/tickets-bot/app/.env
+# with the non-secret config and the encryption key. Deploying before that
+# happens fails at the ENCRYPTION_KEY guard below, by design.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  BOT_SERVICE: tickets-bot
+  BOT_DIR: /opt/tickets-bot
+  BOT_USER: tickets-bot
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # CI=true stops scripts/preinstall from generating a throwaway .env
+      - name: Install dependencies
+        run: CI=true bun install --frozen-lockfile
+
+      # `bun run lint` passes --fix, which mutates the tree; in CI we only check.
+      - name: Lint
+        run: bunx eslint src scripts
+
+      # check-i18n plus check-storage (src/lib/storage.js key building, size
+      # caps and mirror concurrency).
+      - name: Run checks
+        run: bun run test
+
+  deploy:
+    name: Deploy to shared EC2
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-tickets-bot
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Get runner public IP
+        id: runner-ip
+        run: echo "ip=$(curl -sf https://checkip.amazonaws.com)" >> "$GITHUB_OUTPUT"
+
+      - name: Open SSH in security group
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp \
+            --port 22 \
+            --cidr "${{ steps.runner-ip.outputs.ip }}/32"
+
+      - name: Write SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
+      # Only the application source is shipped; node_modules and the Prisma
+      # engines are built on the instance because it is ARM64 and the runner
+      # is x86_64.
+      - name: Package application
+        run: |
+          tar czf /tmp/tickets-app.tar.gz \
+            src/ \
+            scripts/ \
+            db/ \
+            package.json \
+            bun.lock \
+            jsconfig.json
+
+      - name: Upload package to EC2
+        run: |
+          scp -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            /tmp/tickets-app.tar.gz \
+            ec2-user@${{ secrets.EC2_HOST }}:/tmp/tickets-app.tar.gz
+
+      # ENCRYPTION_KEY is deliberately NOT written here. It is seeded once by
+      # the infrastructure bootstrap (from SSM Parameter Store) and must stay
+      # stable forever: if it changes, every archived ticket, transcript and
+      # feedback comment already in the database becomes permanently
+      # undecryptable. Only the rotatable Discord credentials are injected.
+      - name: Write Discord secrets to EC2
+        run: |
+          # Written to a file and SCP'd rather than passed as SSH arguments,
+          # which would expose them in the remote process listing.
+          {
+            printf 'DISCORD_TOKEN=%s\n' "${{ secrets.DISCORD_TOKEN }}"
+            printf 'DISCORD_SECRET=%s\n' "${{ secrets.DISCORD_SECRET }}"
+          } > /tmp/tickets_secrets.env
+          scp -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            /tmp/tickets_secrets.env \
+            ec2-user@${{ secrets.EC2_HOST }}:/tmp/tickets_secrets.env
+          rm -f /tmp/tickets_secrets.env
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            ec2-user@${{ secrets.EC2_HOST }} \
+            "set -e; \
+             test -s ${{ env.BOT_DIR }}/app/.env || { echo 'ERROR: .env missing or empty; run the infra bootstrap first' >&2; exit 1; }; \
+             grep -q '^ENCRYPTION_KEY=.\\+' ${{ env.BOT_DIR }}/app/.env || { echo 'ERROR: ENCRYPTION_KEY not seeded in .env; refusing to deploy' >&2; exit 1; }; \
+             sudo sed -i '/^DISCORD_TOKEN=/d;/^DISCORD_SECRET=/d' ${{ env.BOT_DIR }}/app/.env; \
+             sudo tee -a ${{ env.BOT_DIR }}/app/.env < /tmp/tickets_secrets.env > /dev/null; \
+             rm -f /tmp/tickets_secrets.env; \
+             sudo chown ${{ env.BOT_USER }}:${{ env.BOT_USER }} ${{ env.BOT_DIR }}/app/.env; \
+             sudo chmod 600 ${{ env.BOT_DIR }}/app/.env"
+
+      - name: Extract, install, migrate, and restart
+        run: |
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            ec2-user@${{ secrets.EC2_HOST }} << 'ENDSSH'
+          set -euo pipefail
+
+          BOT_DIR=/opt/tickets-bot
+          BOT_USER=tickets-bot
+          APP="$BOT_DIR/app"
+
+          # `user/` holds the SQLite database, config.yml, transcript templates
+          # and dumps. It is runtime state and must survive deploys, so the
+          # tarball never contains it — src/index.js copies in any new default
+          # files on boot without overwriting existing ones.
+          sudo tar xzf /tmp/tickets-app.tar.gz -C "$APP"
+          sudo chown -R "$BOT_USER:$BOT_USER" "$APP"
+
+          # CI=true stops scripts/preinstall from writing a .env (and with it a
+          # fresh ENCRYPTION_KEY). The real .env is already in place.
+          sudo -u "$BOT_USER" env CI=true HOME="$BOT_DIR" \
+            bash -c "cd '$APP' && bun install --production --frozen-lockfile"
+
+          # prisma generate + prisma migrate deploy, against the provider named
+          # by DB_PROVIDER in .env.
+          sudo -u "$BOT_USER" env HOME="$BOT_DIR" \
+            bash -c "cd '$APP' && node scripts/postinstall"
+
+          sudo systemctl restart tickets-bot
+          rm -f /tmp/tickets-app.tar.gz
+          ENDSSH
+
+      # systemctl returning "active" only means the process started; the bot
+      # still has to reach the Discord gateway and bring up its HTTP server.
+      - name: Verify service health
+        run: |
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            ec2-user@${{ secrets.EC2_HOST }} << 'ENDSSH'
+          set -euo pipefail
+
+          systemctl is-active tickets-bot
+
+          PORT=$(sudo grep -oP '^HTTP_PORT=\K.*' /opt/tickets-bot/app/.env || echo 8169)
+
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${PORT}/status" > /dev/null; then
+              echo "Bot healthy after ${i}0s"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "ERROR: /status did not respond within 300s" >&2
+          sudo journalctl -u tickets-bot -n 50 --no-pager >&2
+          exit 1
+          ENDSSH
+
+      - name: Revoke SSH in security group
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp \
+            --port 22 \
+            --cidr "${{ steps.runner-ip.outputs.ip }}/32" || true
+
+      - name: Clean up local SSH key
+        if: always()
+        run: rm -f /tmp/deploy_key
