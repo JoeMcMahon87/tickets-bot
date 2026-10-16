@@ -51,7 +51,7 @@
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1149.0",
 		"@aws-sdk/s3-request-presigner": "^3.1149.0",
-		"@discord-tickets/settings": "~2.5.4",
+		"@discord-tickets/settings": "github:JoeMcMahon87/portal#build",
 		"@eartharoid/dbf": "^0.4.2",
 		"@eartharoid/dtf": "^2.0.1",
 		"@eartharoid/i18n": "^1.2.1",
