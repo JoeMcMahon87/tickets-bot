@@ -822,7 +822,8 @@ module.exports = class TicketManager {
 	/**
 	 * Build the action row of a ticket's (pinned) opening message
 	 * @param {object} options
-	 * @param {import('@prisma/client').Category} options.category the ticket's **current** category
+	 * @param {import('@prisma/client').Category} options.category the ticket's **current** category,
+	 *   which decides whether claiming and moving apply
 	 * @param {boolean} options.claimed is the ticket currently claimed?
 	 * @param {import('@prisma/client').Guild} options.guild
 	 * @param {boolean} options.hasDetails does the ticket have a topic or question answers?
@@ -855,7 +856,7 @@ module.exports = class TicketManager {
 			);
 		}
 
-		if (guild.moveButton) {
+		if (guild.moveButton && category.moving) {
 			components.addComponents(
 				new ButtonBuilder()
 					.setCustomId(JSON.stringify({ action: 'move' }))

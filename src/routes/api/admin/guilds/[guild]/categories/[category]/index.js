@@ -88,6 +88,7 @@ module.exports.patch = fastify => ({
 			id: true,
 			image: true,
 			memberLimit: true,
+			moving: true,
 			name: true,
 			openingMessage: true,
 			pingRoles: true,
