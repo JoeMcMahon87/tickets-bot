@@ -79,7 +79,14 @@ module.exports = class Client extends FrameworkClient {
 
 			this.tickets = new TicketManager(this);
 
-			this.supers = (process.env.SUPER ?? '').split(',');
+			// Trimmed and emptied-out, because `''.split(',')` is `['']` and an
+			// untrimmed `SUPER=111, 222` would silently grant only the first.
+			// Empty is the expected state: `ManageGuild` is the admin threshold.
+			this.supers = (process.env.SUPER ?? '')
+				.split(',')
+				.map(id => id.trim())
+				.filter(id => id.length > 0);
+			if (this.supers.length > 0) this.log.warn('SUPER grants level 4, above guild owner, to: %s', this.supers.join(', '));
 
 			/** @param {import('discord.js/typings').Interaction} interaction */
 			this.commands.interceptor = async interaction => {

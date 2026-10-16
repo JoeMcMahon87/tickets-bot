@@ -57,7 +57,12 @@ const env = {
 	S3_URL_EXPIRY: v =>
 		(!v || (Number.isInteger(Number(v)) && Number(v) > 0 && Number(v) <= 604800)) ||
 		new Error('must be a number of seconds between 1 and 604800 (7 days, the SigV4 maximum)'),
-	SUPER: () => true, // optional
+	// Optional, and expected to be empty: `ManageGuild` is the admin threshold.
+	// Anything listed here outranks a guild owner in every guild, so a typo must
+	// not pass silently as an ID that can never match.
+	SUPER: v =>
+		(!v || v.split(',').every(id => /^\d{17,20}$/.test(id.trim()))) ||
+		new Error('must be empty, or a comma-separated list of Discord user IDs'),
 };
 
 const load = options => {

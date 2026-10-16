@@ -17,7 +17,7 @@
 		"postinstall": "node scripts/postinstall",
 		"start": "node .",
 		"studio": "npx prisma studio",
-		"test": "node scripts/check-i18n && node scripts/check-avatars && node scripts/check-schemas && node scripts/check-storage && node scripts/check-archiver && node scripts/check-transcript",
+		"test": "node scripts/check-i18n && node scripts/check-avatars && node scripts/check-schemas && node scripts/check-storage && node scripts/check-archiver && node scripts/check-transcript && node scripts/check-privileges",
 		"__prepare": "husky install"
 	},
 	"commitlint": {

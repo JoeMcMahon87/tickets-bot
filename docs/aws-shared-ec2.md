@@ -431,6 +431,10 @@ the dashboard ever needs to be genuinely public, the way to do it is a domain
 plus either TLS terminated on the instance (Caddy/Let's Encrypt, origin
 `https-only`) or an ALB holding an ACM certificate (~$16/mo).
 
+[public-dashboard.md](./public-dashboard.md) plans the first of those, which
+also keeps the bot on its loopback bind — Caddy is then the only process
+listening publicly. It is a plan; none of it is implemented.
+
 ## Still to do
 
 1. **Memory headroom.** `src/lib/threads.js` eagerly spawns five reusable

@@ -42,7 +42,9 @@ const env = {
 	S3_PREFIX: '',
 	S3_REGION: '',
 	S3_URL_EXPIRY: '',
-	SUPER: '319467558166069248',
+	// Deliberately empty: `ManageGuild` is the admin threshold, and upstream's
+	// default here is an account we do not control.
+	SUPER: '',
 };
 
 // check ENCRYPTION_KEY because we don't want to force use of the .env file
