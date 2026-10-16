@@ -4,6 +4,13 @@ A plan, not a record: none of this is implemented. It replaces the SSH tunnel
 described in [aws-shared-ec2.md](./aws-shared-ec2.md#the-dashboard-is-never-exposed-publicly)
 with a real hostname and real TLS, terminated by Caddy on the instance itself.
 
+**Why:** other people need to administer the bot, and a tunnel cannot be
+delegated — it needs an SSH key on the shared instance, which is a far larger
+grant than "can edit ticket categories". A public panel authenticated by
+Discord is the smaller privilege, not the larger one. That reframes the
+trade-off below: the tunnel is not being given up for convenience, it is being
+given up because it is the wrong tool for more than one administrator.
+
 ## Why not CloudFront
 
 The earlier CloudFront revision was dropped because CloudFront can only reach
@@ -39,14 +46,17 @@ today survives the change intact.
 - **A domain**, with a record you can point at the instance's Elastic IP.
   Any registrar; Route 53 is convenient but not required (~$0.50/mo for a
   hosted zone if you use it).
-- **A decision about the shared instance.** This box also runs
-  LizardsColosseum, GronkGameBot, Innkeeper, daggerheart-support-bot and
-  runescribe, and the security group is shared. Caddy on 80/443 would be the
-  first shared ingress on it, and opening those ports affects every tenant,
-  not just this bot. If another bot later wants TLS, Caddy becomes shared
-  infrastructure with a shared config — which argues for putting it in
-  `DiscordBotInfrastructure` from the start rather than treating it as part of
-  this deploy.
+- **Caddy belongs to the instance, not to this bot** (decided). This box also
+  runs LizardsColosseum, GronkGameBot, Innkeeper, daggerheart-support-bot and
+  runescribe, and the security group is shared, so Caddy on 80/443 is the
+  first shared ingress on it and opening those ports affects every tenant.
+  Caddy's package, systemd unit, Caddyfile and the 80/443 rules therefore live
+  in [DiscordBotInfrastructure](https://github.com/JoeMcMahon87/DiscordBotInfrastructure)
+  (`tickets.tf` and the bootstrap script), not in this repo's deploy. The
+  practical consequence: **this repo's `deploy.yml` never touches Caddy**, and
+  a second bot wanting TLS adds a site block rather than a second proxy.
+  Prefer a `conf.d` include per bot over one monolithic Caddyfile, so the bots
+  stay independently deployable.
 
 ## Code changes
 
@@ -130,14 +140,20 @@ makes it reproducible from the bootstrap script.
 }
 ```
 
-Caddy obtains and renews the certificate itself. Two details worth deciding
-before the security group changes:
+Caddy obtains and renews the certificate itself, using **HTTP-01** (decided).
+That means:
 
-- **TLS-ALPN-01** issuance needs only 443. **HTTP-01** needs 80. Caddy will
-  use either, so 443 alone can suffice — but port 80 is still wanted for the
-  HTTP→HTTPS redirect, which is what people get when they type the hostname.
-- **DNS-01** via Route 53 avoids opening 80 at all, at the cost of giving
-  Caddy an IAM role with `route53:ChangeResourceRecordSets` on that zone.
+- **Port 80 must stay open permanently**, not just for the first issuance.
+  Certificates renew roughly every 60 days, and a renewal that cannot complete
+  is a silent problem until the certificate expires. Caddy will serve the
+  HTTP→HTTPS redirect on the same port, which is what people get when they
+  type the hostname — so 80 earns its place twice.
+- No IAM role is needed, which is the reason to prefer it here: DNS-01 would
+  have required giving Caddy `route53:ChangeResourceRecordSets` on the zone,
+  and a credential on the box is a worse thing to own than an open port 80
+  that only ever serves a redirect and a challenge response.
+- Worth an alert either way: certificate expiry is the most likely way this
+  setup breaks months later, with no deploy to correlate it with.
 
 The headers above are the cheapest part of the hardening and belong in Caddy
 rather than the app, since the app serves the dashboard through SvelteKit's
@@ -145,9 +161,9 @@ handler and would have to inject them per-response.
 
 ## Security group and DNS
 
-- Open **443** (and **80** unless using DNS-01) to `0.0.0.0/0` on the shared
-  group, in `tickets.tf` rather than by hand, so it survives the next
-  `terraform apply`. The doc's existing warning applies: confirm that adding
+- Open **443 and 80** to `0.0.0.0/0` on the shared group, in `tickets.tf`
+  rather than by hand, so it survives the next `terraform apply`. Both stay
+  open permanently: 80 for HTTP-01 renewals and the redirect. The doc's existing warning applies: confirm that adding
   an inline `ingress` block does not churn the shared group.
 - **8169 stays closed.** It is never reachable from outside; Caddy talks to it
   over loopback.
@@ -165,22 +181,21 @@ documented exemption from the HTTPS requirement.
 
 ## Before it goes public
 
-The dashboard stops being unreachable-by-default, and two gaps that are
-irrelevant on loopback stop being irrelevant:
+The dashboard stops being unreachable-by-default. Two gaps that are irrelevant
+on loopback become prerequisites, not nice-to-haves:
 
-- **No rate limiting.** `src/http.js` registers no `@fastify/rate-limit`.
-  Authentication is Discord OAuth, so there is no password to brute-force, but
-  `/auth/login` and the admin API become publicly reachable endpoints. Caddy
-  can do this, or the plugin can, and the plugin is better placed to exempt
-  authenticated admins.
-- **No security headers**, covered by the Caddyfile above.
+- **Rate limiting.** `src/http.js` registers no `@fastify/rate-limit`, and it
+  is not a dependency. There is no password to brute-force — authentication is
+  Discord OAuth — but `/auth/login` and every API route become publicly
+  reachable, and an unauthenticated flood currently meets no limit at all on a
+  2-vCPU box shared with five other bots. Caddy can do this, but the plugin is
+  better placed because it can key on the authenticated user and exempt
+  admins.
+- **Security headers**, covered by the Caddyfile above.
 
-Already in decent shape, and worth noting because it carries the weight here:
-every admin route is behind `fastify.authenticate` plus
-`getPrivilegeLevel`/`isAdmin` against the caller's Discord guild permissions,
-and every write endpoint validates its body against `src/schemas/`, so an
-authenticated non-admin cannot reach them and unknown keys never reach Prisma.
-`INVALIDATE_TOKENS` invalidates every issued session if one leaks.
+The authorisation model itself needs no work — see
+[Who can get in](#who-can-get-in). It is the reason this is tractable: the
+panel is public, but authority still comes from Discord on every request.
 
 ## Rollback
 
@@ -189,7 +204,13 @@ unaffected by any of this as long as the localhost redirect URI stays
 registered and the cookie `secure` flag is derived from `HTTP_EXTERNAL` rather
 than hardcoded `true`. To back out, point `HTTP_EXTERNAL` back at
 `http://localhost:8169`, set `HTTP_TRUST_PROXY=false`, stop Caddy and close
-443. No data or schema is involved.
+80/443. No data or schema is involved.
+
+Note what a rollback costs now that delegation is the point: it takes the
+other administrators' access away with it, since the tunnel needs an SSH key
+they do not have. Treat it as an incident measure, not a routine one — and
+prefer narrowing the security group to known source addresses over reverting
+to the tunnel outright.
 
 ## Cost
 
@@ -206,13 +227,61 @@ against the memory headroom item in
 box is a 2-vCPU `t4g.small` already running six bots, and its free memory has
 not yet been measured on the real instance.
 
-## Decisions still open
+## Decisions
 
-1. Does Caddy belong to this bot or to the shared instance? Recommended:
-   shared, in `DiscordBotInfrastructure`, because the security group and port
-   80/443 are shared and a second bot wanting TLS is likely.
-2. HTTP-01 (open port 80) or DNS-01 (IAM role, no port 80)?
-3. Is a public admin panel actually wanted, versus the tunnel? The tunnel is a
-   genuinely strong posture, and it is the only control that currently makes an
-   unauthenticated attack on the dashboard impossible rather than merely
-   unsuccessful.
+| Question | Decision |
+|---|---|
+| Does Caddy belong to this bot or the instance? | The instance — `DiscordBotInfrastructure` |
+| HTTP-01 or DNS-01? | HTTP-01, so port 80 stays open |
+| Public panel, or keep the tunnel? | Public — other people need to administer the bot |
+
+## Who can get in
+
+This is the part that matters most once the panel is public, and it is already
+built: there are **no dashboard accounts**. Identity is a Discord login, and
+authority is read from Discord at request time.
+
+| Level | Who | Source |
+|---|---|---|
+| 4 OPERATOR | the `SUPER` env list | `src/client.js:82` |
+| 3 GUILD_OWNER | the guild's owner | Discord |
+| 2 GUILD_ADMIN | has `ManageGuild` | Discord |
+| 1 GUILD_STAFF | holds a category staff role | the bot's own settings |
+| 0 / -1 | everyone else | — |
+
+Every admin route is gated by `fastify.authenticate` and then `isAdmin`
+(`src/http.js:74`), which requires level ≥ 2 — so `ManageGuild`, guild owner,
+or a super. It additionally requires the session to carry the
+`applications.commands.permissions.update` scope, replying `401` with
+`elevate: 'admin'` when it does not, which is what drives the dashboard's
+re-consent prompt. Every write endpoint then validates its body against
+`src/schemas/`, so unknown keys never reach Prisma.
+
+Three consequences worth being deliberate about:
+
+- **Granting and revoking access is a Discord action**, not a dashboard one.
+  Someone gains admin by getting `ManageGuild` in the server and loses it by
+  having it removed. There is no invite flow to build and no credential to
+  leak — and offboarding someone from Discord offboards them from the panel.
+  This is the strongest argument that a public panel is a *smaller* grant than
+  an SSH key.
+- **`SUPER` is global and bypasses every guild check.** It should name the
+  fewest possible people. Audit it before going public; it is set from the
+  environment, so it is as sensitive as any secret in `.env`.
+- **`INVALIDATE_TOKENS`** invalidates every issued session at once
+  (`src/http.js:37`), which is the lever to pull if a session is suspected
+  leaked. Worth knowing it exists *before* needing it.
+
+Only `ManageGuild` holders can change settings, but **level 1 staff can read
+ticket data** through the non-admin API, which is a wider audience than the
+tunnel ever exposed. That is the intended design, not a flaw — just worth
+knowing that "public" now includes everyone holding a staff role.
+
+## Multiple administrators at once
+
+New with this change, and not currently handled: the category editor PATCHes
+the whole category object, so two admins editing the same category will have
+the last save win silently. The interim transcripts page avoided this by
+sending only changed rows; the forked dashboard does not. Not a blocker — a
+small team rarely collides — but if it bites, the fix is to send only dirty
+fields rather than to add locking.
