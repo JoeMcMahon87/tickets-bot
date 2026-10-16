@@ -377,10 +377,22 @@ ready-made artefact.
 Two consequences worth remembering:
 
 - **An upstream dashboard release is not picked up automatically.** Merge
-  `upstream/main` into the fork, let CI republish `build`, then re-run
-  `bun install` here so `bun.lock` points at the new commit.
+  `upstream/main` into the fork, let CI republish `build`, then re-pin here
+  with:
+
+  ```
+  bun update @discord-tickets/settings
+  ```
+
+  Not `bun install` — that is a no-op. The lockfile records a commit, and a
+  pinned commit still satisfies `#build`, so a plain install reports "no
+  changes" however far the branch has moved.
 - **The fork pins a commit, not a tag.** `bun.lock` records the exact `build`
-  branch commit, so a deploy is reproducible even though the branch moves.
+  branch commit, so a deploy is reproducible even though the branch moves —
+  but the publish workflow force-pushes `build`, which leaves the previous
+  commit unreferenced. Re-pin promptly after republishing: the running
+  instance is unaffected, but a fresh `--frozen-lockfile` deploy against an
+  orphaned commit can fail to resolve it.
 
 The fork is based on upstream's `v2.5.5` commit, matching the `~2.5.4` that
 was previously resolved from npm, so nothing but these fields changed.
