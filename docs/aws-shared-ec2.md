@@ -245,29 +245,26 @@ per ticket, category first:
 
 ### Per category
 
-Open **`http://localhost:8169/transcripts/<guild id>`** through the SSH tunnel,
-after logging into the dashboard — the same session cookie authorises both. It
-lists every category with a channel picker and saves through the existing
-category API.
+Set it in the dashboard, under **Settings → Categories → _category_ →
+Transcript channel**. The empty option means "use the server-wide channel".
 
-It is a page of our own rather than a field in the stock category editor
-because `@discord-tickets/settings` publishes only its build output: teaching
-that form a new field would mean forking it, learning its SvelteKit build, and
-rebuilding on every upstream release. This page is served by our own fastify
-instance at `src/routes/transcripts/[guild].js`, on the same origin and behind
-the same login, and it adds no write path of its own — it drives
-`PATCH /api/admin/guilds/:guild/categories/:id`.
+This was originally a page of our own at `/transcripts/:guild`, because
+`@discord-tickets/settings` publishes only its build output and its category
+editor could not be taught a new field. The dashboard is now forked, so the
+field lives where it belongs and that page is gone — see
+[The dashboard is a fork](#the-dashboard-is-a-fork) for how it is built
+and installed.
 
 The field itself is `Category.transcriptChannel`, added by the migration
 `20261014150000_category_transcript_channel` in all three provider
-directories. That is the first schema change in this fork; everything before
+directories. That was the first schema change in this fork; everything before
 it was deliberately shaped to avoid one. It was unavoidable here — there was
 no existing column to reuse, and the value genuinely belongs per category —
 but it does mean a conflict is possible if upstream ever adds a migration with
 an overlapping timestamp.
 
 A channel the bot can no longer see stays visible in the picker, marked, so a
-save cannot silently clear it. Only changed rows are sent.
+save cannot silently clear it.
 
 ### Server-wide fallback
 
@@ -351,6 +348,42 @@ BACKUP_BUCKET=<from terraform output tickets_backup_bucket>
 BACKUP_PREFIX=db-dumps   # optional
 BACKUP_KEEP=7            # optional, days of local dumps to keep
 ```
+
+## The dashboard is a fork
+
+`@discord-tickets/settings` is not installed from npm. It resolves to
+`github:JoeMcMahon87/portal#build` — the `build` branch of our fork of
+[discord-tickets/portal](https://github.com/discord-tickets/portal), which
+holds two fields the stock dashboard has no inputs for:
+
+| Field | Where | Column |
+| --- | --- | --- |
+| Transcript channel | Categories → _category_ | `Category.transcriptChannel` |
+| Moving | Categories → _category_ | `Category.moving` |
+| Move (button) | General settings → Buttons | `Guild.moveButton` |
+
+The published package ships only its build output, so the source could not be
+patched in place; and the bot host has no frontend toolchain, so the fork is
+**built in its own CI** and the SvelteKit output committed to the `build`
+branch by `.github/workflows/build-branch.yml`. That branch is a build
+artefact: it is rewritten from scratch on every push to the fork's `main`, and
+its history is not meaningful.
+
+Because the dependency keeps its original **name**, `src/http.js` is unchanged
+— it still imports `@discord-tickets/settings/build/handler.js`. Nothing on
+the instance builds the dashboard, and `bun install --production` pulls a
+ready-made artefact.
+
+Two consequences worth remembering:
+
+- **An upstream dashboard release is not picked up automatically.** Merge
+  `upstream/main` into the fork, let CI republish `build`, then re-run
+  `bun install` here so `bun.lock` points at the new commit.
+- **The fork pins a commit, not a tag.** `bun.lock` records the exact `build`
+  branch commit, so a deploy is reproducible even though the branch moves.
+
+The fork is based on upstream's `v2.5.5` commit, matching the `~2.5.4` that
+was previously resolved from npm, so nothing but these fields changed.
 
 ## The dashboard is never exposed publicly
 

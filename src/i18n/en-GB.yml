@@ -20,6 +20,9 @@ buttons:
   edit:
     emoji: ✏️
     text: Edit
+  move:
+    emoji: 🗃️
+    text: Move
   reject_close_request:
     emoji: ✖️
     text: Reject
@@ -146,6 +149,9 @@ commands:
         category:
           description: The category to move the ticket to
           name: category
+      same_category:
+        description: This ticket is already in that category.
+        title: ❌ Error
     new:
       description: Create a new ticket
       name: new
@@ -337,6 +343,7 @@ log:
       update: updated
   ticket:
     added: Added members
+    category: Category
     description: "{user} {verb} a ticket"
     removed: Removed members
     ticket: Ticket
@@ -352,6 +359,8 @@ menus:
     placeholder: Select a ticket category
   guild:
     placeholder: Select a server
+  move:
+    placeholder: Select the new ticket category
 misc:
   blocked:
     description: You are not allowed to create tickets.
@@ -397,6 +406,9 @@ misc:
       No ticket categories have been configured.
       Configure your server at {url}.
     title: ❌ There are no ticket categories
+  no_other_categories:
+    description: There aren't any other categories to move this ticket to.
+    title: ❌ Nowhere to move this ticket
   not_ticket:
     description: You can only use this command in tickets.
     title: ❌ This isn't a ticket channel
@@ -488,6 +500,9 @@ ticket:
       There hasn't been any activity in this channel since <t:{timestamp}:R>.
       Please continue the conversation or {close} the ticket.
     title: ⏰ This ticket is inactive
+  move:
+    description: Select the category to move this ticket to.
+    title: 🗃️ Move this ticket
   offline:
     description:
       There aren't any staff members available at the moment, so it may

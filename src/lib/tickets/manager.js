@@ -5,6 +5,7 @@ const {
 	ActionRowBuilder,
 	ButtonBuilder,
 	ButtonStyle,
+	EmbedBuilder,
 	inlineCode,
 	ModalBuilder,
 	StringSelectMenuBuilder,
@@ -18,6 +19,7 @@ const ms = require('ms');
 const ExtendedEmbedBuilder = require('../embed');
 const { logTicketEvent } = require('../logging');
 const { isStaff } = require('../users');
+const { getEmoji } = require('../../commands/slash/priority');
 const { Collection } = require('discord.js');
 const spacetime = require('spacetime');
 
@@ -433,36 +435,6 @@ module.exports = class TicketManager {
 			topic: `${creator}${topic?.length > 0 ? ` | ${topic}` : ''}`,
 		});
 
-		const needsStats = /{+\s?(avgResponseTime|avgResolutionTime|avgRating)\s?}+/i.test(category.openingMessage);
-		const statsCacheKey = `cache/category-stats/${categoryId}`;
-		let stats = await this.client.keyv.get(statsCacheKey);
-		if (needsStats && !stats) {
-			const closedTickets = await this.client.prisma.ticket.findMany({
-				select: {
-					closedAt: true,
-					createdAt: true,
-					feedback: { select: { rating: true } },
-					firstResponseAt: true,
-				},
-				where: {
-					categoryId: category.id,
-					firstResponseAt: { not: null },
-					open: false,
-				},
-			});
-			const {
-				avgResolutionTime,
-				avgResponseTime,
-			} = await getAverageTimes(closedTickets);
-			const avgRating = await getAverageRating(closedTickets);
-			stats = {
-				avgRating: avgRating.toFixed(1),
-				avgResolutionTime: ms(avgResolutionTime, { long: true }),
-				avgResponseTime: ms(avgResponseTime, { long: true }),
-			};
-			this.client.keyv.set(statsCacheKey, stats, ms('1h'));
-		}
-
 		const embeds = [
 			new ExtendedEmbedBuilder()
 				.setColor(category.guild.primaryColour)
@@ -471,12 +443,10 @@ module.exports = class TicketManager {
 					name: creator.displayName,
 				})
 				.setDescription(
-					category.openingMessage
-						.replace(/{+\s?(user)?name\s?}+/gi, creator.user.toString())
-						.replace(/{+\s?num(ber)?\s?}+/gi, number)
-						.replace(/{+\s?avgResponseTime\s?}+/gi, stats?.avgResponseTime)
-						.replace(/{+\s?avgResolutionTime\s?}+/gi, stats?.avgResolutionTime)
-						.replace(/{+\s?avgRating\s?}+/gi, stats?.avgRating),
+					await this.renderOpeningMessage(category, {
+						creator,
+						number,
+					}),
 				),
 		];
 
@@ -512,37 +482,13 @@ module.exports = class TicketManager {
 			});
 		}
 
-		const components = new ActionRowBuilder();
-
-		if (topic || answers) {
-			components.addComponents(
-				new ButtonBuilder()
-					.setCustomId(JSON.stringify({ action: 'edit' }))
-					.setStyle(ButtonStyle.Secondary)
-					.setEmoji(getMessage('buttons.edit.emoji'))
-					.setLabel(getMessage('buttons.edit.text')),
-			);
-		}
-
-		if (category.guild.claimButton && category.claiming) {
-			components.addComponents(
-				new ButtonBuilder()
-					.setCustomId(JSON.stringify({ action: 'claim' }))
-					.setStyle(ButtonStyle.Secondary)
-					.setEmoji(getMessage('buttons.claim.emoji'))
-					.setLabel(getMessage('buttons.claim.text')),
-			);
-		}
-
-		if (category.guild.closeButton) {
-			components.addComponents(
-				new ButtonBuilder()
-					.setCustomId(JSON.stringify({ action: 'close' }))
-					.setStyle(ButtonStyle.Danger)
-					.setEmoji(getMessage('buttons.close.emoji'))
-					.setLabel(getMessage('buttons.close.text')),
-			);
-		}
+		const components = this.buildOpeningMessageRow({
+			category,
+			claimed: false,
+			getMessage,
+			guild: category.guild,
+			hasDetails: Boolean(topic || answers),
+		});
 
 		const pings = category.pingRoles.map(r => `<@&${r}>`).join(' ');
 
@@ -814,6 +760,335 @@ module.exports = class TicketManager {
 	}
 
 	/**
+	 * Get the (cached) stats used by the `avgResponseTime`, `avgResolutionTime`
+	 * and `avgRating` placeholders of a category's opening message.
+	 * @param {import('@prisma/client').Category} category
+	 * @returns {Promise<?object>} null if the opening message uses no stats placeholders
+	 */
+	async getCategoryStats(category) {
+		const needsStats = /{+\s?(avgResponseTime|avgResolutionTime|avgRating)\s?}+/i.test(category.openingMessage);
+		if (!needsStats) return null;
+		const statsCacheKey = `cache/category-stats/${category.id}`;
+		let stats = await this.client.keyv.get(statsCacheKey);
+		if (!stats) {
+			const closedTickets = await this.client.prisma.ticket.findMany({
+				select: {
+					closedAt: true,
+					createdAt: true,
+					feedback: { select: { rating: true } },
+					firstResponseAt: true,
+				},
+				where: {
+					categoryId: category.id,
+					firstResponseAt: { not: null },
+					open: false,
+				},
+			});
+			const {
+				avgResolutionTime,
+				avgResponseTime,
+			} = await getAverageTimes(closedTickets);
+			const avgRating = await getAverageRating(closedTickets);
+			stats = {
+				avgRating: avgRating.toFixed(1),
+				avgResolutionTime: ms(avgResolutionTime, { long: true }),
+				avgResponseTime: ms(avgResponseTime, { long: true }),
+			};
+			this.client.keyv.set(statsCacheKey, stats, ms('1h'));
+		}
+		return stats;
+	}
+
+	/**
+	 * Resolve the placeholders in a category's opening message
+	 * @param {import('@prisma/client').Category} category
+	 * @param {object} options
+	 * @param {import("discord.js").GuildMember} options.creator the ticket's creator
+	 * @param {number} options.number the ticket's number
+	 * @returns {Promise<string>}
+	 */
+	async renderOpeningMessage(category, {
+		creator, number,
+	}) {
+		const stats = await this.getCategoryStats(category);
+		return category.openingMessage
+			.replace(/{+\s?(user)?name\s?}+/gi, creator.user.toString())
+			.replace(/{+\s?num(ber)?\s?}+/gi, number)
+			.replace(/{+\s?avgResponseTime\s?}+/gi, stats?.avgResponseTime)
+			.replace(/{+\s?avgResolutionTime\s?}+/gi, stats?.avgResolutionTime)
+			.replace(/{+\s?avgRating\s?}+/gi, stats?.avgRating);
+	}
+
+	/**
+	 * Build the action row of a ticket's (pinned) opening message
+	 * @param {object} options
+	 * @param {import('@prisma/client').Category} options.category the ticket's **current** category,
+	 *   which decides whether claiming and moving apply
+	 * @param {boolean} options.claimed is the ticket currently claimed?
+	 * @param {import('@prisma/client').Guild} options.guild
+	 * @param {boolean} options.hasDetails does the ticket have a topic or question answers?
+	 * @param {Function} options.getMessage an i18n locale function
+	 * @returns {ActionRowBuilder}
+	 */
+	buildOpeningMessageRow({
+		category, claimed, guild, hasDetails, getMessage,
+	}) {
+		const components = new ActionRowBuilder();
+
+		if (hasDetails) {
+			components.addComponents(
+				new ButtonBuilder()
+					.setCustomId(JSON.stringify({ action: 'edit' }))
+					.setStyle(ButtonStyle.Secondary)
+					.setEmoji(getMessage('buttons.edit.emoji'))
+					.setLabel(getMessage('buttons.edit.text')),
+			);
+		}
+
+		if (guild.claimButton && category.claiming) {
+			const action = claimed ? 'unclaim' : 'claim';
+			components.addComponents(
+				new ButtonBuilder()
+					.setCustomId(JSON.stringify({ action }))
+					.setStyle(ButtonStyle.Secondary)
+					.setEmoji(getMessage(`buttons.${action}.emoji`))
+					.setLabel(getMessage(`buttons.${action}.text`)),
+			);
+		}
+
+		if (guild.moveButton && category.moving) {
+			components.addComponents(
+				new ButtonBuilder()
+					.setCustomId(JSON.stringify({ action: 'move' }))
+					.setStyle(ButtonStyle.Secondary)
+					.setEmoji(getMessage('buttons.move.emoji'))
+					.setLabel(getMessage('buttons.move.text')),
+			);
+		}
+
+		if (guild.closeButton) {
+			components.addComponents(
+				new ButtonBuilder()
+					.setCustomId(JSON.stringify({ action: 'close' }))
+					.setStyle(ButtonStyle.Danger)
+					.setEmoji(getMessage('buttons.close.emoji'))
+					.setLabel(getMessage('buttons.close.text')),
+			);
+		}
+
+		return components;
+	}
+
+	/**
+	 * Move a ticket to another category.
+	 * The interaction **must** already be deferred or replied to.
+	 * @param {import("discord.js").ChatInputCommandInteraction|import("discord.js").StringSelectMenuInteraction} interaction
+	 * @param {number} categoryId the ID of the category to move the ticket to
+	 */
+	async move(interaction, categoryId) {
+		const ticket = await this.client.prisma.ticket.findUnique({
+			include: {
+				_count: { select: { questionAnswers: true } },
+				category: true,
+				guild: true,
+			},
+			where: { id: interaction.channel.id },
+		});
+
+		if (!ticket) {
+			const settings = await this.client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
+			const getMessage = this.client.i18n.getLocale(settings.locale);
+			return await interaction.editReply({
+				embeds: [
+					new ExtendedEmbedBuilder({
+						iconURL: interaction.guild.iconURL(),
+						text: settings.footer,
+					})
+						.setColor(settings.errorColour)
+						.setTitle(getMessage('misc.not_ticket.title'))
+						.setDescription(getMessage('misc.not_ticket.description')),
+				],
+			});
+		}
+
+		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+
+		/** @param {string} key an i18n key under `commands.slash.move` */
+		const sendError = key => interaction.editReply({
+			components: [],
+			embeds: [
+				new ExtendedEmbedBuilder({
+					iconURL: interaction.guild.iconURL(),
+					text: ticket.guild.footer,
+				})
+					.setColor(ticket.guild.errorColour)
+					.setTitle(getMessage(`${key}.title`))
+					.setDescription(getMessage(`${key}.description`)),
+			],
+		});
+
+		if (!(await isStaff(interaction.guild, interaction.user.id))) return await sendError('commands.slash.move.not_staff');
+
+		const newCategory = await this.getCategory(categoryId);
+
+		if (!newCategory || newCategory.guildId !== interaction.guild.id) return await sendError('misc.unknown_category');
+		if (newCategory.id === ticket.categoryId) return await sendError('commands.slash.move.same_category');
+
+		const discordCategory = await interaction.guild.channels.fetch(newCategory.discordCategory);
+
+		if (discordCategory.children.cache.size === 50) return await sendError('misc.category_full');
+
+		const creator = await interaction.guild.members.fetch(ticket.createdById);
+
+		// don't reassign `ticket`, the previous value is used below
+		await this.client.prisma.ticket.update({
+			data: { category: { connect: { id: newCategory.id } } },
+			where: { id: ticket.id },
+		});
+
+		// alias
+		const $counters = this.$count.categories;
+
+		// make sure new category exists (#531)
+		$counters[newCategory.id] ??= {};
+
+		// more specific aliases
+		const $oldCategory = $counters[ticket.categoryId];
+		const $newCategory = $counters[newCategory.id];
+
+		// decrement old's total and member count
+		if ($oldCategory) {
+			$oldCategory.total--;
+			$oldCategory[ticket.createdById]--;
+		}
+
+		// increment new's total count
+		$newCategory.total ||= 0;
+		$newCategory.total++;
+
+		// increment new's member count
+		$newCategory[ticket.createdById] ||= 0;
+		$newCategory[ticket.createdById]++;
+
+		// the cached ticket includes its category, so it is stale now
+		await this.getTicket(ticket.id, true);
+
+		// these 3 could be done separately,
+		// but using `setParent`, `setName` etc instead of a single `edit` call increases the number of API requests
+		if (
+			newCategory.staffRoles !== ticket.category.staffRoles ||
+			newCategory.channelName !== ticket.category.channelName ||
+			newCategory.discordCategory !== ticket.category.discordCategory
+		) {
+			const allow = ['ViewChannel', 'ReadMessageHistory', 'SendMessages', 'EmbedLinks', 'AttachFiles'];
+			const channelName = newCategory.channelName
+				.replace(/{+\s?(user)?name\s?}+/gi, creator.user.username)
+				.replace(/{+\s?(nick|display)(name)?\s?}+/gi, creator.displayName)
+				.replace(/{+\s?num(ber)?\s?}+/gi, ticket.number === 1488 ? '1487b' : ticket.number);
+			await interaction.channel.edit({
+				lockPermissions: false,
+				name: ticket.priority ? getEmoji(ticket.priority) + channelName : channelName,
+				parent: discordCategory,
+				permissionOverwrites: [
+					{
+						deny: ['ViewChannel'],
+						id: interaction.guild.roles.everyone,
+					},
+					{
+						allow,
+						id: this.client.user.id,
+					},
+					{
+						allow,
+						id: creator.id,
+					},
+					...newCategory.staffRoles.map(id => ({
+						allow,
+						id,
+					})),
+				],
+				reason: `Moved by ${interaction.user.tag}`,
+			});
+		}
+
+		// bring the pinned opening message in line with the new category
+		try {
+			const opening = ticket.openingMessageId && await interaction.channel.messages.fetch(ticket.openingMessageId);
+			if (opening) {
+				const embeds = opening.embeds.map(embed => new EmbedBuilder(embed.data));
+				if (embeds.length >= 1) {
+					embeds[0]
+						.setDescription(await this.renderOpeningMessage(newCategory, {
+							creator,
+							number: ticket.number,
+						}))
+						.setImage(newCategory.image ?? null);
+				}
+				const components = this.buildOpeningMessageRow({
+					category: newCategory,
+					claimed: Boolean(ticket.claimedById),
+					getMessage,
+					guild: ticket.guild,
+					hasDetails: Boolean(ticket.topic) || ticket._count.questionAnswers !== 0,
+				});
+				await opening.edit({
+					components: components.components.length >= 1 ? [components] : [],
+					embeds,
+				});
+			}
+		} catch (e) {
+			this.client.log.warn(`Could not update the opening message of ticket ${ticket.id}`);
+			this.client.log.error(e);
+		}
+
+		const moved = getMessage('commands.slash.move.moved', {
+			by: interaction.user.toString(),
+			from: ticket.category.name,
+			to: newCategory.name,
+		});
+
+		// tell the ticket's participants, and ping the staff who are now responsible
+		const pings = newCategory.pingRoles.map(r => `<@&${r}>`).join(' ');
+		await interaction.channel.send({
+			allowedMentions: { parse: ['roles', 'users'] },
+			content: pings || undefined,
+			embeds: [
+				new ExtendedEmbedBuilder({
+					iconURL: interaction.guild.iconURL(),
+					text: ticket.guild.footer,
+				})
+					.setColor(ticket.guild.primaryColour)
+					.setDescription(moved),
+			],
+		});
+
+		await interaction.editReply({
+			components: [],
+			embeds: [
+				new ExtendedEmbedBuilder({
+					iconURL: interaction.guild.iconURL(),
+					text: ticket.guild.footer,
+				})
+					.setColor(ticket.guild.successColour)
+					.setDescription(moved),
+			],
+		});
+
+		logTicketEvent(this.client, {
+			action: 'update',
+			diff: {
+				original: { [getMessage('log.ticket.category')]: ticket.category.name },
+				updated: { [getMessage('log.ticket.category')]: newCategory.name },
+			},
+			target: {
+				id: ticket.id,
+				name: interaction.channel.toString(),
+			},
+			userId: interaction.user.id,
+		});
+	}
+
+	/**
 	 * @param {import("discord.js").ChatInputCommandInteraction|import("discord.js").ButtonInteraction} interaction
 	 */
 	async claim(interaction) {
@@ -863,37 +1138,13 @@ module.exports = class TicketManager {
 		const openingMessage = await interaction.channel.messages.fetch(ticket.openingMessageId);
 
 		if (openingMessage && openingMessage.components.length !== 0) {
-			const components = new ActionRowBuilder();
-
-			if (ticket.topic || ticket._count.questionAnswers !== 0) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'edit' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.edit.emoji'))
-						.setLabel(getMessage('buttons.edit.text')),
-				);
-			}
-
-			if (ticket.guild.claimButton && ticket.category.claiming) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'unclaim' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.unclaim.emoji'))
-						.setLabel(getMessage('buttons.unclaim.text')),
-				);
-			}
-
-			if (ticket.guild.closeButton) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'close' }))
-						.setStyle(ButtonStyle.Danger)
-						.setEmoji(getMessage('buttons.close.emoji'))
-						.setLabel(getMessage('buttons.close.text')),
-				);
-			}
+			const components = this.buildOpeningMessageRow({
+				category: ticket.category,
+				claimed: true,
+				getMessage,
+				guild: ticket.guild,
+				hasDetails: Boolean(ticket.topic) || ticket._count.questionAnswers !== 0,
+			});
 
 			await openingMessage.edit({ components: [components] });
 		}
@@ -959,37 +1210,13 @@ module.exports = class TicketManager {
 		const openingMessage = await interaction.channel.messages.fetch(ticket.openingMessageId);
 
 		if (openingMessage && openingMessage.components.length !== 0) {
-			const components = new ActionRowBuilder();
-
-			if (ticket.topic || ticket._count.questionAnswers !== 0) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'edit' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.edit.emoji'))
-						.setLabel(getMessage('buttons.edit.text')),
-				);
-			}
-
-			if (ticket.guild.claimButton && ticket.category.claiming) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'claim' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.claim.emoji'))
-						.setLabel(getMessage('buttons.claim.text')),
-				);
-			}
-
-			if (ticket.guild.closeButton) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'close' }))
-						.setStyle(ButtonStyle.Danger)
-						.setEmoji(getMessage('buttons.close.emoji'))
-						.setLabel(getMessage('buttons.close.text')),
-				);
-			}
+			const components = this.buildOpeningMessageRow({
+				category: ticket.category,
+				claimed: false,
+				getMessage,
+				guild: ticket.guild,
+				hasDetails: Boolean(ticket.topic) || ticket._count.questionAnswers !== 0,
+			});
 
 			await openingMessage.edit({ components: [components] });
 		}

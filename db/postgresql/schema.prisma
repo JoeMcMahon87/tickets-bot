@@ -82,6 +82,7 @@ model Category {
     id              Int        @id @default(autoincrement())
     image           String?
     memberLimit     Int        @default(1)
+    moving          Boolean    @default(false)
     name            String
     openingMessage  String     @db.Text
     pingRoles       Json       @default("[]")
@@ -126,6 +127,7 @@ model Guild {
     id            String     @id @db.VarChar(19)
     locale        String     @default("en-GB")
     logChannel    String?    @db.VarChar(19)
+    moveButton    Boolean    @default(false)
     primaryColour String     @default("#009999")
     staleAfter    Int?
     successColour String     @default("Green")

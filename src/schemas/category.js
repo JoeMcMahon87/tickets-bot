@@ -75,6 +75,9 @@ const properties = {
 		minimum: 1,
 		type: 'integer',
 	},
+	// Whether this category's tickets may be moved elsewhere; the move button
+	// also requires the guild's `moveButton` setting.
+	moving: { type: 'boolean' },
 	name: {
 		maxLength: 100,
 		type: 'string',

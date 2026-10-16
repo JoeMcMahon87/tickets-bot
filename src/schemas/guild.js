@@ -71,6 +71,7 @@ module.exports = {
 			type: 'string',
 		},
 		logChannel: channelId,
+		moveButton: { type: 'boolean' },
 		primaryColour: colour,
 		// A minute is the floor the stale-ticket cron can act on; it runs on a
 		// 15-minute interval.
