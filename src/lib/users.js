@@ -52,12 +52,38 @@ module.exports.isStaff = async (guild, userId) => {
 };
 
 /**
+ * A role whose *name* is exactly this (case-insensitively, trimmed) grants bot
+ * administration through the dashboard, alongside the `ManageGuild`
+ * permission.
+ *
+ * Matching on a name rather than a permission is a deliberate choice, and it
+ * is worth knowing what it costs: role names are not access-controlled the way
+ * permissions are, so anyone able to create or rename roles -- `ManageRoles`,
+ * which is weaker than `ManageGuild` -- can grant themselves bot
+ * administration by naming a role "admin". The match is exact rather than a
+ * substring so that "Administrator", "admin-helper" and "non-admin" do not
+ * qualify by accident.
+ */
+const ADMIN_ROLE_NAME = 'admin';
+
+module.exports.ADMIN_ROLE_NAME = ADMIN_ROLE_NAME;
+
+/**
+ * @param {import("discord.js").GuildMember} member
+ * @returns {boolean}
+ */
+const hasAdminRole = member =>
+	member.roles.cache.some(role => role.name.trim().toLowerCase() === ADMIN_ROLE_NAME);
+
+module.exports.hasAdminRole = hasAdminRole;
+
+/**
  *
  * @param {import("discord.js")} member
  * @returns {Promise<number>}
  * 	- `4` = OPERATOR (SUPER)
  *  - `3` = GUILD_OWNER
- *  - `2` = GUILD_ADMIN
+ *  - `2` = GUILD_ADMIN (`ManageGuild`, or a role named "admin")
  *  - `1` = GUILD_STAFF
  *  - `0` = GUILD_MEMBER
  *  - `-1` = NONE (NOT A MEMBER)
@@ -67,6 +93,7 @@ module.exports.getPrivilegeLevel = async member => {
 	else if (member.guild.client.supers.includes(member.id)) return 4;
 	else if (member.guild.ownerId === member.id) return 3;
 	else if (member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return 2;
+	else if (hasAdminRole(member)) return 2;
 	else if (await this.isStaff(member.guild, member.id)) return 1;
 	else return 0;
 };

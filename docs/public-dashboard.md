@@ -234,6 +234,7 @@ not yet been measured on the real instance.
 | Does Caddy belong to this bot or the instance? | The instance — `DiscordBotInfrastructure` |
 | HTTP-01 or DNS-01? | HTTP-01, so port 80 stays open |
 | Public panel, or keep the tunnel? | Public — other people need to administer the bot |
+| Who counts as an admin? | `ManageGuild`, or a role named "admin"; `SUPER` stays empty |
 
 ## Who can get in
 
@@ -245,7 +246,7 @@ authority is read from Discord at request time.
 |---|---|---|
 | 4 OPERATOR | the `SUPER` env list | `src/client.js:82` |
 | 3 GUILD_OWNER | the guild's owner | Discord |
-| 2 GUILD_ADMIN | has `ManageGuild` | Discord |
+| 2 GUILD_ADMIN | has `ManageGuild`, **or holds a role named "admin"** | Discord |
 | 1 GUILD_STAFF | holds a category staff role | the bot's own settings |
 | 0 / -1 | everyone else | — |
 
@@ -265,8 +266,9 @@ Three consequences worth being deliberate about:
   leak — and offboarding someone from Discord offboards them from the panel.
   This is the strongest argument that a public panel is a *smaller* grant than
   an SSH key.
-- **`SUPER` is global and bypasses every guild check**, and its upstream
-  default is a stranger's account. See [The `SUPER` list](#the-super-list).
+- **`SUPER` is global and bypasses every guild check**, so it stays empty.
+  See [The `SUPER` list](#the-super-list) — including the one step that is
+  still outstanding on the instance.
 - **`INVALIDATE_TOKENS`** invalidates every issued session at once
   (`src/http.js:37`), which is the lever to pull if a session is suspected
   leaked. Worth knowing it exists *before* needing it.
@@ -281,50 +283,78 @@ specifically.
 
 ## The `SUPER` list
 
-`SUPER` is a comma-separated list of Discord user IDs that `src/client.js:82`
+**Decided: `SUPER` stays empty, and `ManageGuild` is the admin threshold.**
+
+`SUPER` is a comma-separated list of Discord user IDs that `src/client.js`
 reads into `client.supers`. It is the only identity that outranks a guild
 owner: `getPrivilegeLevel` returns 4 for it unconditionally, and `isStaff`
 returns true for it in every guild, bypassing the per-guild permission checks
-entirely. On a tunnelled dashboard that barely matters. On a public one it is
-the single most powerful credential in the system, and it is not a secret —
-it is a user ID, so possession of the account is all it takes.
+entirely. It is also not a secret — it is a user ID, so possession of the
+account is all it takes. Nothing in the codebase requires level 4: `isAdmin`
+gates on `>= 2`, and the two slash commands that consult `supers` fall through
+to their normal checks when it is empty.
 
-Four things to fix, in order:
+Three of the four things that needed fixing are done:
 
-1. **Audit the deployed value.** It is seeded by the infra bootstrap, so it is
-   not visible from this repo:
+- **Upstream's default, which was somebody else's account, is gone.**
+  `scripts/preinstall.js` hardcoded `SUPER: '319467558166069248'` — inherited
+  from upstream, not an account we control — and `preinstall` writes its
+  defaults into a `.env` it generates. It is now `''`. The deployed instance
+  was never affected: the deploy runs `bun install` with `CI=true`, which makes
+  `preinstall` exit before writing, and it only ever writes when `.env` is
+  absent, which the deploy separately asserts it is not.
+- **It is validated.** `src/env.js` was `SUPER: () => true`, so anything
+  passed. It now requires empty or a comma-separated list of 17–20 digit
+  snowflakes, and fails startup otherwise.
+- **It is parsed properly.** `(process.env.SUPER ?? '').split(',')` yielded
+  `['']` when unset and did not trim, so `SUPER=111, 222` silently granted only
+  the first. It now trims, drops empties, and logs a warning naming anyone it
+  does grant — so a non-empty list is visible in `journalctl` rather than only
+  in a file nobody reads.
 
-   ```
-   sudo grep '^SUPER=' /opt/tickets-bot/app/.env || echo 'SUPER not set'
-   ```
+`scripts/check-privileges.js` pins all of this, and runs as part of
+`bun run test`.
 
-   Unset is the safest answer and means nobody holds level 4.
+### Still to do, on the instance
 
-2. **Change the upstream default, which is somebody else's account.**
-   `scripts/preinstall.js:45` hardcodes
-   `SUPER: '319467558166069248'` — inherited from upstream, and not an account
-   you control. `preinstall` writes it into a `.env` it generates, so any local
-   install done without `CI` set and without an existing `.env` grants a third
-   party level 4. The deployed instance is **not** affected: the deploy runs
-   `bun install` with `CI=true`, which makes `preinstall` exit before writing
-   anything, and it only ever writes when `.env` is absent — which the deploy
-   separately asserts it is not. It should still default to `''`.
+The deployed value is seeded by the infra bootstrap, so none of the above
+changes it. It is not visible from this repo:
 
-3. **Validate it.** `src/env.js:60` is `SUPER: () => true`, so anything passes.
-   It should require a comma-separated list of 17–20 digit snowflakes and fail
-   startup otherwise, which is how the rest of `env.js` treats values that
-   matter.
+```
+sudo grep '^SUPER=' /opt/tickets-bot/app/.env || echo 'SUPER not set'
+```
 
-4. **Parse it properly.** `(process.env.SUPER ?? '').split(',')` yields `['']`
-   when unset, and does not trim — so `SUPER=111, 222` silently grants only
-   the first, with the second inert and nobody told. Trim and drop empties, and
-   log the resolved list at startup so it appears in `journalctl` rather than
-   only in a file nobody reads.
+Unset or empty is the intended state. If it holds anything, clear it there and
+in `DiscordBotInfrastructure` so the next bootstrap does not put it back.
 
-Then decide whether you need it at all. With `ManageGuild` as the admin
-threshold, `SUPER`'s only remaining purpose is cross-guild operator access
-that ignores per-guild permissions. For this deployment, empty is the
-least-privilege answer.
+## The "admin" role
+
+A role whose **name** is exactly `admin` — case-insensitive, trimmed — also
+reaches level 2, so its holders can administer the bot through the dashboard.
+This exists so administration can be delegated without handing out
+`ManageGuild`, which carries a great deal else.
+
+The match is exact, so `Administrator`, `admin-helper`, `non-admin` and
+`server admin` do **not** qualify. That is deliberate and tested; a substring
+match would hand admin to roles nobody meant to privilege.
+
+**Know what this costs.** Role names are not access-controlled the way
+permissions are. Anyone who can create or rename a role — `ManageRoles`, which
+is weaker than `ManageGuild` — can grant themselves bot administration by
+naming a role "admin". On a server where `ManageRoles` is handed out more
+freely than `ManageGuild`, this is a privilege escalation path that did not
+exist before. It is a deliberate trade, not an oversight, but it is worth
+re-checking who holds `ManageRoles` before the dashboard is public.
+
+It is currently a constant (`ADMIN_ROLE_NAME` in `src/lib/users.js`), not a
+setting. Making it configurable per guild would mean a column, a migration and
+a dashboard field; worth doing only if a second name is ever wanted.
+
+Note the asymmetry: an "admin" role grants dashboard administration but **not**
+staff powers in Discord. `isStaff` checks `ManageGuild` and the categories'
+staff roles, and is unchanged — so an "admin" role holder can edit categories
+in the dashboard but cannot claim or close a ticket unless that role is also
+listed as a category staff role.
 
 ## The rest of the public surface
 
