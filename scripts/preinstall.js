@@ -24,6 +24,7 @@ const env = {
 	HTTP_HOST: '0.0.0.0',
 	HTTP_INTERNAL: '',
 	HTTP_PORT: 8169,
+	HTTP_RATE_LIMIT: '',
 	HTTP_TRUST_PROXY: false,
 	INVALIDATE_TOKENS: '',
 	NODE_ENV: 'production', // not bot-specific

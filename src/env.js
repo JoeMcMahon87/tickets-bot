@@ -38,6 +38,11 @@ const env = {
 	HTTP_PORT: v =>
 		!!v ||
 		new Error('is required'),
+	// Requests per minute per user (or per address when unauthenticated).
+	// Optional; `src/http.js` defaults it to 300.
+	HTTP_RATE_LIMIT: v =>
+		(!v || (Number.isInteger(Number(v)) && Number(v) > 0)) ||
+		new Error('must be a positive number of requests per minute'),
 	HTTP_TRUST_PROXY: () => true, // optional
 	INVALIDATE_TOKENS: () => true, // optional
 	OVERRIDE_ARCHIVE: () => true, // optional

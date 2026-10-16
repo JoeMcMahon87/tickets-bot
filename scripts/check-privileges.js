@@ -10,6 +10,9 @@
  *    threshold. Anything in it outranks a guild owner in every guild.
  *  - a role *named* "admin" grants level 2. The match must stay exact, or
  *    "Administrator" and "non-admin" would qualify.
+ *  - session cookies must be `Secure` over HTTPS and not over the tunnel.
+ *    Both failures are silent: without it the cookie crosses the internet in
+ *    the clear, and with it hardcoded the tunnel cannot log in at all.
  *
  * No test framework, matching the other check-*.js scripts. `isStaff` is
  * stubbed where a case would otherwise fall through to it, since the real one
@@ -20,6 +23,7 @@ const assert = require('assert');
 const { join } = require('path');
 
 const users = require(join(__dirname, '../src/lib/users'));
+const { useSecureCookies } = require(join(__dirname, '../src/lib/misc'));
 const {
 	ADMIN_ROLE_NAME, hasAdminRole, getPrivilegeLevel,
 } = users;
@@ -139,6 +143,32 @@ async function main() {
 	assert.strictEqual(validate('123'), false);
 	assert.strictEqual(validate('319467558166069248,nope'), false);
 	ok('a typo fails startup rather than becoming an ID that never matches');
+
+	// ── the cookie Secure attribute ──────────────────────────────────
+	const withExternal = v => {
+		const before = process.env.HTTP_EXTERNAL;
+		process.env.HTTP_EXTERNAL = v;
+		try {
+			return useSecureCookies();
+		} finally {
+			if (before === undefined) delete process.env.HTTP_EXTERNAL;
+			else process.env.HTTP_EXTERNAL = before;
+		}
+	};
+
+	assert.strictEqual(withExternal('https://tickets.example.com'), true);
+	ok('cookies are Secure when the dashboard is served over HTTPS');
+
+	assert.strictEqual(withExternal('http://localhost:8169'), false);
+	assert.strictEqual(withExternal('http://127.0.0.1:8169'), false);
+	ok('cookies are not Secure over the tunnel, which could not send them');
+
+	// A Secure cookie is never sent over plain HTTP, so a hostname that merely
+	// resembles https must not be enough to set it.
+	assert.strictEqual(withExternal('http://https.example.com'), false);
+	assert.strictEqual(withExternal(''), false);
+	assert.strictEqual(withExternal(undefined), false);
+	ok('only an https:// scheme counts, not a hostname that resembles one');
 
 	console.log(`\n[check-privileges] ${pass} checks passed`);
 }

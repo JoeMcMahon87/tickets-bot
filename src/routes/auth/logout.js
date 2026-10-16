@@ -1,3 +1,4 @@
+const { useSecureCookies } = require('../../lib/misc');
 module.exports.get = fastify => ({
 	handler: async function (req, res) {
 		const { accessToken } = req.user;
@@ -16,7 +17,7 @@ module.exports.get = fastify => ({
 			httpOnly: true,
 			path: '/',
 			sameSite: 'Strict',
-			secure: false,
+			secure: useSecureCookies(),
 		});
 		res.header('Content-Type', 'text/html');
 		return res.send(`
