@@ -127,6 +127,7 @@ model Guild {
     id            String     @id @db.VarChar(19)
     locale        String     @default("en-GB")
     logChannel    String?    @db.VarChar(19)
+    moveButton    Boolean    @default(false)
     primaryColour String     @default("#009999")
     staleAfter    Int?
     successColour String     @default("Green")
