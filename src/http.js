@@ -8,6 +8,10 @@ const { format } = require('util');
 process.env.ORIGIN = process.env.HTTP_INTERNAL || process.env.HTTP_EXTERNAL;
 
 module.exports = async client => {
+	// Must come before any route is registered: see src/lib/ratelimit.js for
+	// why the hook order matters.
+	await require('./lib/ratelimit').attach(fastify);
+
 	// for file uploads
 	fastify.register(require('@fastify/multipart'), { limits: { fileSize: 2 ** 27 } }); // 128 MiB
 

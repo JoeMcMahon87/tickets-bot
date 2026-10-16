@@ -1,3 +1,4 @@
+const { useSecureCookies } = require('../../lib/misc');
 const pattern = /^\/(?!\/)[^\s'">]*$/;
 
 module.exports.get = () => ({
@@ -66,7 +67,7 @@ module.exports.get = () => ({
 			maxAge: data.expires_in,
 			path: '/',
 			sameSite: 'Strict',
-			secure: false,
+			secure: useSecureCookies(),
 		});
 		res.header('Content-Type', 'text/html');
 		return res.send(`

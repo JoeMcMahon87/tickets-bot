@@ -1,4 +1,5 @@
 const { randomBytes } = require('crypto');
+const { useSecureCookies } = require('../../lib/misc');
 
 const pattern = /^\/(?!\/)[^\s]*$/;
 
@@ -13,7 +14,10 @@ module.exports.get = () => ({
 
 		res.setCookie('oauth2-state', state.toString(), {
 			httpOnly: true,
+			// `lax`, not `strict`: this cookie has to survive the cross-site
+			// redirect back from Discord, which `strict` would prevent.
 			sameSite: 'lax',
+			secure: useSecureCookies(),
 		});
 
 		const params = {

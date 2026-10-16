@@ -60,30 +60,28 @@ today survives the change intact.
 
 ## Code changes
 
-Three, all small, and the first is not optional — the cookies are currently
-hardcoded insecure, which is harmless on loopback and wrong the moment the
-dashboard is reachable over HTTPS.
+Three. The first is done, the other two are configuration rather than code.
 
-### 1. Secure cookies
+### 1. Secure cookies — done
 
-`src/routes/auth/callback.js:69` and `src/routes/auth/logout.js:19` both set
-`secure: false`. Derive it instead, so the tunnel keeps working for anyone
-who still uses it:
+`src/routes/auth/callback.js` and `logout.js` hardcoded `secure: false`, and
+`login.js` set the `oauth2-state` cookie with no `secure` flag at all. All
+three now call `useSecureCookies()` from `src/lib/misc.js`, which derives it
+from `HTTP_EXTERNAL`:
 
 ```js
-secure: process.env.HTTP_EXTERNAL.startsWith('https'),
+module.exports.useSecureCookies = () => (process.env.HTTP_EXTERNAL ?? '').startsWith('https://');
 ```
 
-`src/routes/auth/login.js:14` sets the `oauth2-state` cookie with no `secure`
-flag at all; it needs the same treatment. Keep its `sameSite: 'lax'` — that is
-deliberate, and `Strict` would break the cross-site redirect back from Discord.
-The `token` cookie's `sameSite: 'Strict'` is fine as it is, because the
-callback sets it on its own response and then meta-refreshes to an internal
-URL.
+Derived rather than simply set to `true`, because both deployments are
+legitimate and each fails silently the wrong way round: without the flag a
+public dashboard sends its session cookie over the internet in the clear, and
+with it hardcoded the tunnel cannot log in at all, because a `Secure` cookie
+is never sent over plain HTTP. It lives in one place because getting it right
+in two of three call sites is the likely mistake.
 
-A `scripts/check-*.js` case asserting the flag follows `HTTP_EXTERNAL` would
-match how the rest of this repo is tested, and would stop the flag silently
-regressing to `false`.
+`login.js` keeps `sameSite: 'lax'`, which is deliberate: that cookie has to
+survive the cross-site redirect back from Discord.
 
 ### 2. Trust the proxy
 
@@ -112,6 +110,7 @@ in `DiscordBotInfrastructure`, not here:
 | `HTTP_HOST` | `127.0.0.1` | unchanged — deliberately |
 | `HTTP_PORT` | `8169` | unchanged |
 | `HTTP_INTERNAL` | empty | unchanged — must stay empty |
+| `HTTP_RATE_LIMIT` | unset (300) | raise if administrators share an address |
 
 `HTTP_EXTERNAL` is not only the OAuth `redirect_uri`. It is also the link the
 bot gives people in `src/listeners/client/messageCreate.js:41` and
@@ -184,14 +183,26 @@ documented exemption from the HTTPS requirement.
 The dashboard stops being unreachable-by-default. Two gaps that are irrelevant
 on loopback become prerequisites, not nice-to-haves:
 
-- **Rate limiting.** `src/http.js` registers no `@fastify/rate-limit`, and it
-  is not a dependency. There is no password to brute-force — authentication is
-  Discord OAuth — but `/auth/login` and every API route become publicly
-  reachable, and an unauthenticated flood currently meets no limit at all on a
-  2-vCPU box shared with five other bots. Caddy can do this, but the plugin is
-  better placed because it can key on the authenticated user and exempt
-  admins.
-- **Security headers**, covered by the Caddyfile above.
+- **Rate limiting — done.** `@fastify/rate-limit`, configured in
+  `src/lib/ratelimit.js`: 300 requests per minute per address by default,
+  tunable with `HTTP_RATE_LIMIT`, with `/status` exempt so health polling
+  cannot lock itself out.
+
+  The hook order is the whole point and the obvious configuration is wrong.
+  With `global: true` the plugin's hook runs **after** a route's own
+  `onRequest` hooks, so `fastify.authenticate` answers `401` first and the
+  limiter never counts the request — leaving an unauthenticated flood against
+  the API completely unlimited, which is the one case it exists for. It is
+  therefore registered with `global: false` and added as an instance-level
+  hook, which runs first. `scripts/check-ratelimit.js` pins that, and fails if
+  it is ever reverted.
+
+  The cost of that ordering is the key: `req.user` does not exist yet, so
+  counting is per address, not per user. Administrators behind one address
+  share an allowance — which is what `HTTP_RATE_LIMIT` is for. It also means
+  `HTTP_TRUST_PROXY` must be true behind Caddy, or every request appears to
+  come from the proxy and shares a single bucket.
+- **Security headers**, covered by the Caddyfile above — still to do.
 
 The authorisation model itself needs no work — see
 [Who can get in](#who-can-get-in). It is the reason this is tractable: the
