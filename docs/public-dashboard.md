@@ -265,17 +265,103 @@ Three consequences worth being deliberate about:
   leak — and offboarding someone from Discord offboards them from the panel.
   This is the strongest argument that a public panel is a *smaller* grant than
   an SSH key.
-- **`SUPER` is global and bypasses every guild check.** It should name the
-  fewest possible people. Audit it before going public; it is set from the
-  environment, so it is as sensitive as any secret in `.env`.
+- **`SUPER` is global and bypasses every guild check**, and its upstream
+  default is a stranger's account. See [The `SUPER` list](#the-super-list).
 - **`INVALIDATE_TOKENS`** invalidates every issued session at once
   (`src/http.js:37`), which is the lever to pull if a session is suspected
   leaked. Worth knowing it exists *before* needing it.
 
-Only `ManageGuild` holders can change settings, but **level 1 staff can read
-ticket data** through the non-admin API, which is a wider audience than the
-tunnel ever exposed. That is the intended design, not a flaw — just worth
-knowing that "public" now includes everyone holding a staff role.
+Level 1 confers **nothing** in the dashboard, despite the name. Staff powers
+are Discord-side — claim, close, move, transcript — and go through `isStaff`
+in the command handlers, not the HTTP API. Every ticket-data route is `isAdmin`
+(level ≥ 2); the only non-admin ticket route is
+`api/guilds/[guild]/tickets/@me.js`, which returns the caller's own tickets and
+gates on `isMember`, so it is open to any guild member rather than to staff
+specifically.
+
+## The `SUPER` list
+
+`SUPER` is a comma-separated list of Discord user IDs that `src/client.js:82`
+reads into `client.supers`. It is the only identity that outranks a guild
+owner: `getPrivilegeLevel` returns 4 for it unconditionally, and `isStaff`
+returns true for it in every guild, bypassing the per-guild permission checks
+entirely. On a tunnelled dashboard that barely matters. On a public one it is
+the single most powerful credential in the system, and it is not a secret —
+it is a user ID, so possession of the account is all it takes.
+
+Four things to fix, in order:
+
+1. **Audit the deployed value.** It is seeded by the infra bootstrap, so it is
+   not visible from this repo:
+
+   ```
+   sudo grep '^SUPER=' /opt/tickets-bot/app/.env || echo 'SUPER not set'
+   ```
+
+   Unset is the safest answer and means nobody holds level 4.
+
+2. **Change the upstream default, which is somebody else's account.**
+   `scripts/preinstall.js:45` hardcodes
+   `SUPER: '319467558166069248'` — inherited from upstream, and not an account
+   you control. `preinstall` writes it into a `.env` it generates, so any local
+   install done without `CI` set and without an existing `.env` grants a third
+   party level 4. The deployed instance is **not** affected: the deploy runs
+   `bun install` with `CI=true`, which makes `preinstall` exit before writing
+   anything, and it only ever writes when `.env` is absent — which the deploy
+   separately asserts it is not. It should still default to `''`.
+
+3. **Validate it.** `src/env.js:60` is `SUPER: () => true`, so anything passes.
+   It should require a comma-separated list of 17–20 digit snowflakes and fail
+   startup otherwise, which is how the rest of `env.js` treats values that
+   matter.
+
+4. **Parse it properly.** `(process.env.SUPER ?? '').split(',')` yields `['']`
+   when unset, and does not trim — so `SUPER=111, 222` silently grants only
+   the first, with the second inert and nobody told. Trim and drop empties, and
+   log the resolved list at startup so it appears in `journalctl` rather than
+   only in a file nobody reads.
+
+Then decide whether you need it at all. With `ManageGuild` as the admin
+threshold, `SUPER`'s only remaining purpose is cross-guild operator access
+that ignores per-guild permissions. For this deployment, empty is the
+least-privilege answer.
+
+## The rest of the public surface
+
+Going public exposes more than the settings pages. Every route was checked;
+these are the ones that are not `isAdmin`:
+
+| Route | Gate | Exposes |
+|---|---|---|
+| `/status` | none | Gateway ping and shard status |
+| `/api/client` | none | Aggregate stats: ticket, guild, category and tag counts, total members, archived message count, average rating and response times |
+| `/api/locales` | none | Translation strings |
+| `/api/guilds`, `/api/admin/guilds` | authenticated | Only guilds where the caller is owner or has `ManageGuild`, so nothing leaks |
+| `/api/guilds/:guild` | member | Guild name, icon, the caller's own privilege level |
+| `/api/guilds/:guild/tickets/@me` | member | The caller's own tickets |
+| `/api/users/@me/key` | authenticated | Mints an API token for the caller — see below |
+
+`/api/client` is the one to think about: no per-ticket content, but it is
+business telemetry — how many tickets exist, how fast they are answered, how
+they are rated — readable by anyone who finds the hostname.
+
+It cannot simply be blocked at Caddy: the dashboard's own root layout fetches
+it from the browser, so denying it breaks the dashboard. The choices are to
+accept the exposure, or to put it behind `fastify.authenticate` and have the
+layout handle a 401 — a change in both repos, which is why this is a decision
+rather than a line in the Caddyfile. `/status` has no such constraint and can
+be blocked or left; it reveals only gateway ping and shard state.
+
+**API keys deserve a decision.** Any authenticated user can mint themselves a
+token from `/api/users/@me/key`, and that token carries `service: true`, which
+skips the OAuth re-consent check in `isAdmin`. It does **not** skip the
+privilege check — `getPrivilegeLevel(guildMember) >= 2` still runs
+(`src/http.js:103`), so a non-admin gains nothing. But the token is signed
+with no `expiresAt`, and `authenticate` only rejects a token whose `expiresAt`
+is in the past (`src/http.js:36`), so **it never expires**; the only revocation
+is moving `INVALIDATE_TOKENS`, which revokes everyone's. Setting
+`PUBLIC_BOT=true` disables the endpoint outright, at the cost of disabling API
+keys for you too.
 
 ## Multiple administrators at once
 
