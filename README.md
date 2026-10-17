@@ -41,9 +41,18 @@
 <br>
 </div>
 
+> [!NOTE]
+> **This is a modified fork, maintained by Joe McMahon.**
+>
+> It tracks the upstream project and adds features and fixes for a
+> self-hosted deployment. See [Fork modifications](#-fork-modifications) for
+> what differs. Everything else, including the documentation linked below,
+> refers to the upstream project.
+
 ## 📖 Contents
 
 - [📖 Contents](#-contents)
+- [🔧 Fork modifications](#-fork-modifications)
 - [✨ Features](#-features)
   - [Want to learn more?](#want-to-learn-more)
 - [⚡ Getting started](#-getting-started)
@@ -55,6 +64,68 @@
 - [⭐ Star History](#-star-history)
 - [🥱 License](#-license)
 
+
+## 🔧 Fork modifications
+
+Changes in this fork that are not in the upstream project. Deployment-specific
+values — hostnames, account identifiers, infrastructure names — are kept out of
+this repository; they live in the private infrastructure repository and in the
+environment.
+
+### Tickets
+
+- **Move button on the opening message.** Staff can move a ticket to another
+  category from the ticket itself, rather than only through `/move`. Both paths
+  share one implementation, so both also refresh the pinned opening message for
+  the new category, ping the roles that are now responsible, and record the
+  change in the log channel. Off by default: it needs a server setting plus a
+  per-category toggle, mirroring how the claim button works.
+
+### Transcripts and storage
+
+- **Transcript channel on close.** Closed tickets' transcripts can be posted to
+  a channel, set per category with a server-wide fallback.
+- **Optional object storage.** Transcripts and archived attachments can be
+  mirrored to S3-compatible storage, with presigned links; local storage
+  remains the default. Member avatars are mirrored too, so transcripts keep
+  rendering after an avatar changes.
+- **Messages from departed members are archived**, rather than being dropped
+  when the member can no longer be fetched.
+
+### Dashboard
+
+- **A forked dashboard** adds three settings the stock one has no inputs for:
+  a category's transcript channel and whether its tickets may be moved, and
+  the server-wide move-button toggle.
+- **Administration can be delegated without `Manage Server`.** A role named
+  `admin` also grants dashboard access. Note the trade: role names are not
+  access-controlled the way permissions are, so anyone able to create or rename
+  roles can grant themselves access this way.
+- **Optional public hosting.** The dashboard can be served over HTTPS by a
+  reverse proxy on the host instead of only through an SSH tunnel. The bot
+  stays bound to loopback either way.
+
+### Security and robustness
+
+- **Admin API request bodies are validated** against JSON schemas, so unknown
+  fields never reach the database layer.
+- **Session cookies are `Secure`** when the dashboard is served over HTTPS,
+  derived from its configured URL so a tunnelled deployment still works.
+- **Request rate limiting**, configurable, applied before authentication so
+  unauthenticated traffic is limited too.
+- **No cross-server superuser by default.** `Manage Server` is the
+  administrative threshold.
+- **Clearer panel errors.** A failed panel names the step and the cause —
+  including which channel permissions the bot is missing — instead of logging a
+  bare API rejection.
+- The bot **exits on a failed Discord login** rather than idling, and a
+  rate-limited server list is handled instead of throwing.
+- **Anonymous statistics reporting is disabled.**
+
+### Deployment
+
+- A **GitHub Actions deploy** to a self-hosted instance, documented in
+  [`docs/`](docs/). The bot is stopped before database migrations run.
 
 ## ✨ Features
 
