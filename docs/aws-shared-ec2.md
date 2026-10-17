@@ -400,16 +400,26 @@ Two consequences worth remembering:
 The fork is based on upstream's `v2.5.5` commit, matching the `~2.5.4` that
 was previously resolved from npm, so nothing but these fields changed.
 
-## The dashboard is never exposed publicly
+## How the dashboard is reached
 
 `src/http.js` serves a SvelteKit settings dashboard, and it cannot simply be
 switched off: there is **no settings slash command** — the 16 slash commands
 are all ticket operations — so categories, panels and staff roles exist only
 there, and without a category the bot cannot open a ticket at all.
 
-What it does not need is a public address. It binds to `127.0.0.1`
-(`HTTP_HOST=127.0.0.1`), nothing in the security group opens its port, and you
-reach it over an SSH tunnel when a guild needs configuring:
+It is now **served publicly over HTTPS** by Caddy on the instance, because
+administration needed delegating and a tunnel cannot be delegated without
+handing out an SSH key. See [public-dashboard.md](./public-dashboard.md).
+
+The bot itself did not move: `HTTP_HOST` is still `127.0.0.1`, its port is
+still closed in the security group, and Caddy is the only process accepting
+connections from the internet.
+
+The tunnel below still works and is the fallback if Caddy or a certificate
+ever fails — but only while `HTTP_EXTERNAL` points at `http://localhost`.
+Once it is an `https://` URL the session cookie becomes `Secure`, which a
+plain-HTTP tunnel cannot send, so logging in through the tunnel stops working
+until that is changed back:
 
 ```
 ssh -i <key> -L 8169:127.0.0.1:8169 ec2-user@<ec2-host>
@@ -451,9 +461,14 @@ listening publicly. It is a plan; none of it is implemented.
    automatically when generated on the instance, which is what the deploy
    does. If `prisma generate` ever moves to the x86 runner, `binaryTargets`
    must be set explicitly in the schema.
-3. **`terraform plan` has not been run** — it needs real credentials. It is
-   worth reading before the first apply, in particular to confirm that adding
-   an inline `ingress` block does not churn the shared security group.
+3. ~~**`terraform plan` has not been run.**~~ Done, and it answered its own
+   question: adding an inline `ingress` block updates the shared security
+   group in place and leaves the other tenants' rules alone. It also found
+   that the reverse is destructive — a plan from a checkout *missing* those
+   blocks revokes the matching live rules, while reporting `0 to destroy`,
+   because rule removal hides inside the group's in-place update. That has
+   since happened once in practice. Check `git log --oneline -1` before
+   applying.
 
 ## Cost
 
