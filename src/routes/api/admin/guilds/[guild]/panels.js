@@ -12,6 +12,9 @@ const {
 } = require('discord.js');
 const emoji = require('node-emoji');
 const { logAdminEvent } = require('../../../../../lib/logging');
+const {
+	describe, missingChannelPermissions,
+} = require('../../../../../lib/panel-errors');
 const panelSchema = require('../../../../../schemas/panel.js');
 
 module.exports.post = fastify => ({
@@ -20,6 +23,25 @@ module.exports.post = fastify => ({
 		const client = req.routeOptions.config.client;
 		const guild = client.guilds.cache.get(req.params.guild);
 		const data = req.body;
+
+		// Creating a panel is a sequence of Discord calls, and a rejection from
+		// any of them used to reach the log as a bare DiscordAPIError with a
+		// line number and nothing about what was being attempted. Each step is
+		// named, so the log says which one failed and why.
+		const step = async (name, fn, context = {}) => {
+			client.log.verbose.http(`${req.id} panel: ${name}`);
+			try {
+				return await fn();
+			} catch (error) {
+				client.log.error.http(`${req.id} panel: ` + describe({
+					error,
+					step: name,
+					...context,
+				}));
+				error.panelStep = name;
+				throw error;
+			}
+		};
 
 		const settings = await client.prisma.guild.findUnique({
 			select: {
@@ -31,22 +53,45 @@ module.exports.post = fastify => ({
 			where: { id: guild.id },
 		});
 		const getMessage = client.i18n.getLocale(settings.locale);
-		const categories = data.categories.map(id => {
+
+		/** Rejected before any Discord call, so nothing is half-created. */
+		const reject = message => {
+			client.log.warn.http(`${req.id} panel: refused | ${message}`);
+			return res.code(400).send({
+				error: 'Bad Request',
+				message,
+				statusCode: 400,
+			});
+		};
+
+		const categories = [];
+		for (const id of data.categories) {
 			const category = settings.categories.find(c => c.id === id);
-			if (!category) throw new Error(`Invalid category: ${id}`);
-			return category;
-		});
-		if (categories.length === 0) throw new Error('No categories');
-		if (categories.length !== 1 && data.type === 'MESSAGE') throw new Error('Invalid number of categories for panel type');
+			if (!category) {
+				return reject(`Category ${id} does not exist in this server. It may have been deleted since the page was loaded; reload and try again.`);
+			}
+			categories.push(category);
+		}
+
+		if (categories.length === 0) {
+			return reject('A panel needs at least one category.');
+		}
+		if (categories.length !== 1 && data.type === 'MESSAGE') {
+			return reject(`A MESSAGE panel can only offer one category, but ${categories.length} were selected. Use a BUTTON or MENU panel for several.`);
+		}
 
 		/** @type {import("discord.js").TextChannel} */
 		let channel;
 		if (data.channel) {
-			channel = await client.channels.fetch(data.channel);
+			channel = await step(
+				'fetch the channel the panel should go in',
+				() => client.channels.fetch(data.channel),
+				{ channelId: data.channel },
+			);
 		} else {
 			const allow = ['ViewChannel', 'ReadMessageHistory'];
 			if (data.type === 'MESSAGE') allow.push('SendMessages');
-			channel = await guild.channels.create({
+			channel = await step('create a channel for the panel', () => guild.channels.create({
 				name: 'create-a-ticket',
 				permissionOverwrites: [
 					{
@@ -59,6 +104,22 @@ module.exports.post = fastify => ({
 				rateLimitPerUser: 15,
 				reason: 'New ticket panel',
 				type: GuildText,
+			}));
+		}
+
+		// Checked before sending rather than after failing, because Discord
+		// answers a missing permission with an opaque 50013 that names neither
+		// the permission nor the channel. EmbedLinks is the usual culprit: a
+		// panel is an embed, so the send fails even though the bot can plainly
+		// talk in the channel.
+		const missing = missingChannelPermissions(channel.permissionsFor(guild.members.me));
+		if (missing.length > 0) {
+			client.log.warn.http(`${req.id} panel: refused | channel=${channel.id} | missing=${missing.join(', ')}`);
+			if (!data.channel) await channel.delete('Panel could not be posted').catch(() => null);
+			return res.code(403).send({
+				error: 'Forbidden',
+				message: `The bot cannot post a panel in #${channel.name}: it is missing ${missing.join(', ')}. Grant those in that channel's permissions and try again.`,
+				statusCode: 403,
 			});
 		}
 
@@ -78,7 +139,11 @@ module.exports.post = fastify => ({
 		if (data.thumbnail) embed.setThumbnail(data.thumbnail);
 
 		if (data.type === 'MESSAGE') {
-			await channel.send({ embeds: [embed] });
+			await step(
+				'send the panel message',
+				() => channel.send({ embeds: [embed] }),
+				{ channelId: channel.id },
+			);
 		} else {
 			const components = [];
 
@@ -125,6 +190,7 @@ module.exports.post = fastify => ({
 			}
 
 			try {
+				client.log.verbose.http(`${req.id} panel: send the panel message with components`);
 				await channel.send({
 					components: [
 						new ActionRowBuilder()
@@ -133,6 +199,16 @@ module.exports.post = fastify => ({
 					embeds: [embed],
 				});
 			} catch (error) {
+				// Logged before the handling below, so the cause is recorded
+				// whichever branch is taken -- including the emoji case, which
+				// answers 400 and would otherwise leave nothing in the log.
+				client.log.error.http(`${req.id} panel: ` + describe({
+					channelId: channel.id,
+					error,
+					missing: missingChannelPermissions(channel.permissionsFor(guild.members.me)),
+					step: 'send the panel message with components',
+				}));
+
 				if (!data.channel) await channel.delete('Failed to send panel');
 
 				const human_errors = [];
@@ -169,6 +245,22 @@ module.exports.post = fastify => ({
 					});
 				}
 
+				// A permission or access refusal is the common case and the
+				// dashboard can act on it, so answer with the cause rather
+				// than letting it surface as an unexplained 500.
+				if (error.code === 50001 || error.code === 50013) {
+					const lacking = missingChannelPermissions(channel.permissionsFor(guild.members.me));
+					return res.code(403).send({
+						error: 'Forbidden',
+						message: lacking.length
+							? `The bot cannot post a panel in #${channel.name}: it is missing ${lacking.join(', ')}. Grant those in that channel's permissions and try again.`
+							: `Discord refused to post the panel in #${channel.name} (${error.code}: ${error.message}). The bot holds the channel permissions it needs, so this is likely an emoji it cannot use, or a category-level override.`,
+						statusCode: 403,
+					});
+				}
+
+				// Anything else is unexpected: rethrow so the onError hook
+				// records the stack, which the line above does not carry.
 				throw error;
 			}
 		}
