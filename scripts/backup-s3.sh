@@ -3,7 +3,7 @@
 # Dump the database and ship it to S3.
 #
 # Intended to be run on the shared Discord-bots EC2 instance by a systemd
-# timer (see DiscordBotInfrastructure/user_data.sh), as the `tickets-bot` user,
+# timer (see the infrastructure repository's user_data.sh), as the `tickets-bot` user,
 # with the instance role providing S3 credentials.
 #
 #   Usage: scripts/backup-s3.sh

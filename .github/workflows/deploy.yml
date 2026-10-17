@@ -1,14 +1,13 @@
 name: Test and Deploy
 
-# Deploys the bot to the shared Discord-bots EC2 instance managed by
-# DiscordBotInfrastructure. Mirrors the deploy methodology used by the other
-# bots on that instance (LizardsColosseum, GronkGameBot, Innkeeper, ...):
-# temporarily open SSH for the runner, ship the code, restart the systemd
-# service, close SSH again.
+# Deploys the bot to a shared Discord-bots EC2 instance managed by a separate,
+# private infrastructure repository. Mirrors the deploy methodology used by the
+# other bots on that instance: temporarily open SSH for the runner, ship the
+# code, restart the systemd service, close SSH again.
 #
-# The instance must already be bootstrapped by DiscordBotInfrastructure
-# (tickets.tf + bootstrap-tickets-bot.sh), which creates /opt/tickets-bot, the
-# `tickets-bot` system user and service, and seeds /opt/tickets-bot/app/.env
+# The instance must already be bootstrapped by that infrastructure repository
+# (its Terraform + bootstrap-tickets-bot.sh), which creates /opt/tickets-bot,
+# the `tickets-bot` system user and service, and seeds /opt/tickets-bot/app/.env
 # with the non-secret config and the encryption key. Deploying before that
 # happens fails at the ENCRYPTION_KEY guard below, by design.
 
