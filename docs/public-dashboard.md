@@ -6,7 +6,7 @@
 > repository rather than here.
 
 A plan, not a record: none of this is implemented. It replaces the SSH tunnel
-described in [aws-shared-ec2.md](./aws-shared-ec2.md#the-dashboard-is-never-exposed-publicly)
+described in [aws-shared-ec2.md](./aws-shared-ec2.md#how-the-dashboard-is-reached)
 with a real hostname and real TLS, terminated by Caddy on the instance itself.
 
 **Why:** other people need to administer the bot, and a tunnel cannot be
