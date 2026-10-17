@@ -11,3 +11,6 @@
 *.log
 *.DS_Store
 summary.md
+# Deployment notes: the real values behind the <placeholders> in docs/.
+# This repository is public, so they are kept out of it deliberately.
+*.local.md

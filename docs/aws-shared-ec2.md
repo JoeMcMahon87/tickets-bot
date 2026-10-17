@@ -1,10 +1,13 @@
 # Deploying on the shared Discord-bots AWS infrastructure
 
+> Deployment-specific values appear as `<placeholders>` — `<infra-repo>`,
+> `<region>`, `<host>`. This repository is public, so the real values are kept
+> in an untracked `DEPLOYMENT.local.md` and in the private infrastructure
+> repository rather than here.
+
 This fork is deployed onto the shared ARM64 EC2 instance managed by
-[DiscordBotInfrastructure](https://github.com/JoeMcMahon87/DiscordBotInfrastructure),
-alongside the other bots on that box (LizardsColosseum, GronkGameBot,
-Innkeeper, daggerheart-support-bot, runescribe). It runs as the `tickets-bot`
-systemd service from `/opt/tickets-bot`, deployed by
+`<infra-repo>`, alongside five other bots on that box. It runs as the
+`tickets-bot` systemd service from `/opt/tickets-bot`, deployed by
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) on every push
 to `main`.
 
@@ -89,7 +92,7 @@ key survives both instance replacement and loss of the GitHub repository.
 ## Required GitHub secrets
 
 The first five are shared across all the bot repos on this instance; run
-`print-github-secrets.sh` in DiscordBotInfrastructure after `terraform apply`
+the secrets helper in `<infra-repo>` after `terraform apply`
 to get them.
 
 | Secret | Purpose |
@@ -458,4 +461,4 @@ Marginal cost of adding this bot to the existing fleet, assuming the shared
 instance has headroom: roughly **$0–1/month** — S3 pennies at this volume,
 no CloudFront, no load balancer, no database instance, and $0 additional
 compute (or +$14/mo if the instance is bumped to `t4g.medium`). Figures are
-approximate; check current `eu-west-3` pricing.
+approximate; check current `<region>` pricing.

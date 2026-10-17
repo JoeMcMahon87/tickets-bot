@@ -1,5 +1,10 @@
 # Hosting the dashboard publicly, on the instance
 
+> Deployment-specific values appear as `<placeholders>` — `<infra-repo>`,
+> `<region>`, `<host>`. This repository is public, so the real values are kept
+> in an untracked `DEPLOYMENT.local.md` and in the private infrastructure
+> repository rather than here.
+
 A plan, not a record: none of this is implemented. It replaces the SSH tunnel
 described in [aws-shared-ec2.md](./aws-shared-ec2.md#the-dashboard-is-never-exposed-publicly)
 with a real hostname and real TLS, terminated by Caddy on the instance itself.
@@ -47,11 +52,10 @@ today survives the change intact.
   Any registrar; Route 53 is convenient but not required (~$0.50/mo for a
   hosted zone if you use it).
 - **Caddy belongs to the instance, not to this bot** (decided). This box also
-  runs LizardsColosseum, GronkGameBot, Innkeeper, daggerheart-support-bot and
-  runescribe, and the security group is shared, so Caddy on 80/443 is the
+  runs five other bots, and the security group is shared, so Caddy on 80/443 is the
   first shared ingress on it and opening those ports affects every tenant.
   Caddy's package, systemd unit, Caddyfile and the 80/443 rules therefore live
-  in [DiscordBotInfrastructure](https://github.com/JoeMcMahon87/DiscordBotInfrastructure)
+  in `<infra-repo>`
   (`tickets.tf` and the bootstrap script), not in this repo's deploy. The
   practical consequence: **this repo's `deploy.yml` never touches Caddy**, and
   a second bot wanting TLS adds a site block rather than a second proxy.
@@ -101,7 +105,7 @@ start failing as cross-origin.
 ## Environment
 
 Seeded in `/opt/tickets-bot/app/.env` by the infra bootstrap, so these change
-in `DiscordBotInfrastructure`, not here:
+in `<infra-repo>`, not here:
 
 | Variable | Now | Becomes |
 |---|---|---|
@@ -242,7 +246,7 @@ not yet been measured on the real instance.
 
 | Question | Decision |
 |---|---|
-| Does Caddy belong to this bot or the instance? | The instance — `DiscordBotInfrastructure` |
+| Does Caddy belong to this bot or the instance? | The instance — `<infra-repo>` |
 | HTTP-01 or DNS-01? | HTTP-01, so port 80 stays open |
 | Public panel, or keep the tunnel? | Public — other people need to administer the bot |
 | Who counts as an admin? | `ManageGuild`, or a role named "admin"; `SUPER` stays empty |
@@ -336,7 +340,7 @@ sudo grep '^SUPER=' /opt/tickets-bot/app/.env || echo 'SUPER not set'
 ```
 
 Unset or empty is the intended state. If it holds anything, clear it there and
-in `DiscordBotInfrastructure` so the next bootstrap does not put it back.
+in `<infra-repo>` so the next bootstrap does not put it back.
 
 ## The "admin" role
 
