@@ -78,6 +78,7 @@ module.exports.patch = fastify => ({
 
 		const select = {
 			channelName: true,
+			claimLockdown: true,
 			claiming: true,
 			// createdAt: true,
 			description: true,

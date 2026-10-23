@@ -357,12 +357,13 @@ BACKUP_KEEP=7            # optional, days of local dumps to keep
 `@discord-tickets/settings` is not installed from npm. It resolves to
 `github:JoeMcMahon87/portal#build` — the `build` branch of our fork of
 [discord-tickets/portal](https://github.com/discord-tickets/portal), which
-holds two fields the stock dashboard has no inputs for:
+holds the fields the stock dashboard has no inputs for:
 
 | Field | Where | Column |
 | --- | --- | --- |
 | Transcript channel | Categories → _category_ | `Category.transcriptChannel` |
 | Moving | Categories → _category_ | `Category.moving` |
+| Claim lockdown | Categories → _category_ | `Category.claimLockdown` |
 | Move (button) | General settings → Buttons | `Guild.moveButton` |
 
 The published package ships only its build output, so the source could not be

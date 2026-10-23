@@ -50,6 +50,9 @@ const properties = {
 		maxLength: 100,
 		type: 'string',
 	},
+	// Whether claiming a ticket hides it from the category's staff roles,
+	// leaving only the claimer (plus the creator and anyone added) able to see it.
+	claimLockdown: { type: 'boolean' },
 	claiming: { type: 'boolean' },
 	cooldown: { type: ['integer', 'null'] },
 	customTopic: {
