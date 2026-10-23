@@ -70,6 +70,7 @@ model ArchivedUser {
 model Category {
     channelName     String
     claiming        Boolean    @default(false)
+    claimLockdown   Boolean    @default(true)
     createdAt       DateTime   @default(now())
     cooldown        Int?
     customTopic     String?

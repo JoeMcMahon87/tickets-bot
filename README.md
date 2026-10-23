@@ -80,6 +80,10 @@ environment.
   the new category, ping the roles that are now responsible, and record the
   change in the log channel. Off by default: it needs a server setting plus a
   per-category toggle, mirroring how the claim button works.
+- **Claim lockdown is optional per category.** Claiming a ticket normally hides
+  it from the category's staff roles, leaving it to the claimer. A category can
+  turn that off so its claimed tickets stay visible to all of its staff. On by
+  default, which keeps the upstream behaviour.
 
 ### Transcripts and storage
 
@@ -94,9 +98,10 @@ environment.
 
 ### Dashboard
 
-- **A forked dashboard** adds three settings the stock one has no inputs for:
-  a category's transcript channel and whether its tickets may be moved, and
-  the server-wide move-button toggle.
+- **A forked dashboard** adds four settings the stock one has no inputs for:
+  a category's transcript channel, whether its tickets may be moved, and
+  whether claiming locks its tickets down, plus the server-wide move-button
+  toggle.
 - **Administration can be delegated without `Manage Server`.** A role named
   `admin` also grants dashboard access. Note the trade: role names are not
   access-controlled the way permissions are, so anyone able to create or rename

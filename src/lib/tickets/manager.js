@@ -1120,8 +1120,10 @@ module.exports = class TicketManager {
 		await interaction.deferReply();
 
 		await Promise.all([
-			interaction.channel.permissionOverwrites.edit(interaction.user, { 'ViewChannel': true }, `Ticket claimed by ${interaction.user.tag}`),
-			...ticket.category.staffRoles.map(role => interaction.channel.permissionOverwrites.edit(role, { 'ViewChannel': false }, `Ticket claimed by ${interaction.user.tag}`)),
+			...(ticket.category.claimLockdown ? [
+				interaction.channel.permissionOverwrites.edit(interaction.user, { 'ViewChannel': true }, `Ticket claimed by ${interaction.user.tag}`),
+				...ticket.category.staffRoles.map(role => interaction.channel.permissionOverwrites.edit(role, { 'ViewChannel': false }, `Ticket claimed by ${interaction.user.tag}`)),
+			] : []),
 			this.client.prisma.ticket.update({
 				data: {
 					claimedBy: {
@@ -1198,9 +1200,15 @@ module.exports = class TicketManager {
 
 		await interaction.deferReply();
 
+		// undo the lockdown if the channel has one, rather than going by the category's
+		// current setting, which may have been changed since the ticket was claimed
+		const locked = ticket.category.staffRoles.some(role => interaction.channel.permissionOverwrites.cache.get(role)?.deny.has('ViewChannel'));
+
 		await Promise.all([
-			interaction.channel.permissionOverwrites.delete(interaction.user, `Ticket released by ${interaction.user.tag}`),
-			...ticket.category.staffRoles.map(role => interaction.channel.permissionOverwrites.edit(role, { 'ViewChannel': true }, `Ticket released by ${interaction.user.tag}`)),
+			...(locked ? [
+				interaction.channel.permissionOverwrites.delete(interaction.user, `Ticket released by ${interaction.user.tag}`),
+				...ticket.category.staffRoles.map(role => interaction.channel.permissionOverwrites.edit(role, { 'ViewChannel': true }, `Ticket released by ${interaction.user.tag}`)),
+			] : []),
 			this.client.prisma.ticket.update({
 				data: { claimedBy: { disconnect: true } },
 				where: { id: interaction.channel.id },
