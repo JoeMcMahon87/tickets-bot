@@ -13,7 +13,7 @@ RUN CI=true bun install --production --frozen-lockfile
 
 COPY --link . .
 
-FROM node:22-alpine3.20 AS runner
+FROM node:24-alpine3.22 AS runner
 LABEL org.opencontainers.image.source=https://github.com/discord-tickets/bot \
 	org.opencontainers.image.description="The most popular open-source ticket bot for Discord." \
 	org.opencontainers.image.licenses="GPL-3.0-or-later"
