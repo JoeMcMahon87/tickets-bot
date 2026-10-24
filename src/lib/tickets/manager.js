@@ -1159,6 +1159,14 @@ module.exports = class TicketManager {
 			],
 		});
 
+		// not awaited: Discord only allows 2 renames per channel every 10 minutes, and discord.js
+		// would hold the claim up until the rate limit resets
+		const suffix = `-${interaction.user.username}`;
+		if (!interaction.channel.name.endsWith(suffix)) {
+			interaction.channel.setName((interaction.channel.name + suffix).slice(0, 100), `Ticket claimed by ${interaction.user.tag}`)
+				.catch(error => this.client.log.error(error));
+		}
+
 		logTicketEvent(this.client, {
 			action: 'claim',
 			target: {
@@ -1236,6 +1244,16 @@ module.exports = class TicketManager {
 					.setDescription(getMessage('ticket.released', { user: interaction.user.toString() })),
 			],
 		});
+
+		// remove the claimer's name that was added when the ticket was claimed
+		if (ticket.claimedById) {
+			const claimer = await this.client.users.fetch(ticket.claimedById);
+			const suffix = `-${claimer.username}`;
+			if (interaction.channel.name.endsWith(suffix)) {
+				interaction.channel.setName(interaction.channel.name.slice(0, -suffix.length), `Ticket released by ${interaction.user.tag}`)
+					.catch(error => this.client.log.error(error));
+			}
+		}
 
 		logTicketEvent(this.client, {
 			action: 'unclaim',
