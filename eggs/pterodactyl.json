@@ -25,7 +25,7 @@
 	"scripts": {
 		"installation": {
 			"script": "output_file=\"\/mnt\/server\/.env\"\r\nrandom=$(cat \/dev\/urandom | tr -dc 'a-f0-9' | fold -w 48 | head -n 1)\r\necho \"# Most environment variables can be found on the Startup page\" >> $output_file\r\necho \"ENCRYPTION_KEY=${random}\" >> $output_file\r\necho \"HTTP_EXTERNAL=http:\/\/${SERVER_IP}:${SERVER_PORT}\" >> $output_file\r\necho \"HTTP_PORT=\" >> $output_file\r\necho \"Environment variables written to $output_file\"",
-			"container": "node:18-buster-slim",
+			"container": "node:24-bookworm-slim",
 			"entrypoint": "bash"
 		}
 	},
