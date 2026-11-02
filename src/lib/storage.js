@@ -154,11 +154,13 @@ async function put({
  * @param {object} options
  * @param {number?} options.expiresIn seconds; capped at 7 days
  * @param {string?} options.filename suggested download filename
+ * @param {boolean?} options.inline open in the browser instead of downloading
  * @returns {Promise<string>}
  */
 async function presign(key, {
 	expiresIn,
 	filename,
+	inline = false,
 } = {}) {
 	const c = getClient();
 	return await getSignedUrl(
@@ -169,7 +171,7 @@ async function presign(key, {
 			// Without this the browser saves the object under its key, which
 			// is a ticket ID rather than anything a human asked for.
 			...(filename
-				? { ResponseContentDisposition: `attachment; filename="${filename.replace(/"/g, '')}"` }
+				? { ResponseContentDisposition: `${inline ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"` }
 				: {}),
 		}),
 		{ expiresIn: Math.min(expiresIn || urlExpiry, MAX_EXPIRY) },

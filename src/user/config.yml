@@ -46,7 +46,10 @@ presence:
 # gated on this setting.
 stats: false
 templates:
-  transcript: transcript.md
+  # transcript.html opens in a browser, with each ticket's images shown inline
+  # and gathered in a gallery at the top; click one to see it full size.
+  # transcript.md is the plain-text version, which Discord can preview in-app.
+  transcript: transcript.html
 transcripts:
   # Post a ticket's transcript to a channel when it is closed.
   #

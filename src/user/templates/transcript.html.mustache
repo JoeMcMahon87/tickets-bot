@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- No script, ever: everything below is ticket content, escaped, but this is the backstop. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; media-src https:; style-src 'unsafe-inline'">
+<meta name="referrer" content="no-referrer">
+<title>#{{ channelName }} transcript</title>
+<style>
+:root { --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d0d7de; --card: #f6f8fa; --link: #0969da; --accent: #5865f2; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1e1f22; --fg: #e6e6e6; --muted: #9aa0a6; --line: #3a3c42; --card: #2b2d31; --link: #6ea8fe; --accent: #7983f5; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+a { color: var(--link); }
+.muted { color: var(--muted); }
+dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 16px 0; }
+dl.meta dt { color: var(--muted); }
+dl.meta dd { margin: 0; overflow-wrap: anywhere; }
+ul.people { list-style: none; padding: 0; margin: 0; }
+ul.people li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; flex: none; background: var(--card); object-fit: cover; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.gallery figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.gallery img { display: block; width: 100%; height: 140px; object-fit: cover; }
+.gallery figcaption { padding: 6px 8px; font-size: 0.85rem; overflow-wrap: anywhere; }
+.qa { margin: 0 0 12px; }
+.qa blockquote { margin: 4px 0 0; padding: 4px 12px; border-left: 3px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg { display: flex; gap: 12px; padding: 10px 8px; border-radius: 8px; scroll-margin-top: 16px; }
+.msg:target { background: var(--card); outline: 2px solid var(--accent); }
+.msg-main { min-width: 0; flex: 1; }
+.msg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.msg-head .name { font-weight: 600; }
+.msg-head .num { font-size: 0.8rem; text-decoration: none; color: var(--muted); }
+.body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.media { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 6px; }
+.media a.thumb { display: block; max-width: min(100%, 320px); }
+.media a.thumb img { display: block; max-width: 100%; max-height: 240px; border-radius: 6px; border: 1px solid var(--line); }
+.media video { max-width: min(100%, 420px); max-height: 300px; border-radius: 6px; }
+.file { display: inline-block; padding: 6px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.embed { margin-top: 6px; padding: 8px 12px; background: var(--card); border-left: 4px solid var(--accent); border-radius: 4px; max-width: 520px; }
+.embed .desc { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.9rem; }
+.embed img { display: block; max-width: 100%; max-height: 260px; margin-top: 6px; border-radius: 4px; }
+.note { font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>#{{ channelName }}</h1>
+<div class="muted">Ticket transcript · {{ guildName }}</div>
+
+<dl class="meta">
+  <dt>ID</dt><dd>{{ ticket.id }}</dd>
+  <dt>Number</dt><dd>{{ ticket.category.name }} #{{ ticket.number }}</dd>
+  <dt>Topic</dt><dd>{{ #ticket.topic }}{{ . }}{{ /ticket.topic }}{{ ^ticket.topic }}<span class="muted">(no topic)</span>{{ /ticket.topic }}</dd>
+  <dt>Created</dt><dd>{{ #ticket }}{{ createdAtFull }}{{ /ticket }}</dd>
+  <dt>Created by</dt><dd>{{ #ticket.createdBy }}{{ displayName }} (@{{ username }}){{ /ticket.createdBy }}</dd>
+  <dt>Closed</dt><dd>{{ #ticket }}{{ closedAtFull }}{{ /ticket }}</dd>
+  <dt>Closed by</dt><dd>{{ #ticket.closedBy }}{{ displayName }} (@{{ username }}){{ /ticket.closedBy }}{{ ^ticket.closedBy }}<span class="muted">(automated)</span>{{ /ticket.closedBy }}</dd>
+  <dt>Reason</dt><dd>{{ #ticket.closedReason }}{{ ticket.closedReason }}{{ /ticket.closedReason }}{{ ^ticket.closedReason }}<span class="muted">(no reason)</span>{{ /ticket.closedReason }}</dd>
+  <dt>Claimed by</dt><dd>{{ #ticket.claimedBy }}{{ displayName }} (@{{ username }}){{ /ticket.claimedBy }}{{ ^ticket.claimedBy }}<span class="muted">(not claimed)</span>{{ /ticket.claimedBy }}</dd>
+{{ #ticket.feedback }}
+  <dt>Feedback</dt><dd>{{ rating }}/5{{ #comment }} — {{ . }}{{ /comment }}</dd>
+{{ /ticket.feedback }}
+  <dt>Pinned</dt><dd>{{ #pinned }}{{ . }}{{ /pinned }}{{ ^pinned }}<span class="muted">(none)</span>{{ /pinned }}</dd>
+</dl>
+
+<h2>Participants</h2>
+<ul class="people">
+{{ #ticket.archivedUsers }}
+  <li>{{ #avatarUrl }}<img class="avatar" src="{{ . }}" alt="" loading="lazy">{{ /avatarUrl }}{{ ^avatarUrl }}<span class="avatar"></span>{{ /avatarUrl }}<span>{{ displayName }} <span class="muted">@{{ username }} · {{ userId }}</span></span></li>
+{{ /ticket.archivedUsers }}
+</ul>
+
+{{ #ticket.gallery.length }}
+<h2>Images ({{ ticket.gallery.length }})</h2>
+<p class="muted note">Click an image to open it full size, or its caption to jump to the message it was posted in.</p>
+<div class="gallery">
+{{ #ticket.gallery }}
+  <figure>
+    <a href="{{ url }}" target="_blank" rel="noopener noreferrer"><img src="{{ url }}" alt="{{ name }}" loading="lazy"></a>
+    <figcaption><a href="#{{ number }}">{{ number }}</a> · {{ name }}</figcaption>
+  </figure>
+{{ /ticket.gallery }}
+</div>
+<p class="muted note">Image links are time-limited. If they no longer load, run <code>/transcript</code> again for fresh ones.</p>
+{{ /ticket.gallery.length }}
+
+<h2>Questions</h2>
+{{ #ticket.questionAnswers }}
+<div class="qa">
+  <strong>{{ question.label }}</strong>
+  <blockquote>{{ value }}{{ ^value }}<span class="muted">(no answer)</span>{{ /value }}</blockquote>
+</div>
+{{ /ticket.questionAnswers }}
+{{ ^ticket.questionAnswers }}
+<p class="muted">(none)</p>
+{{ /ticket.questionAnswers }}
+
+<h2>Messages</h2>
+{{ #ticket.archivedMessages }}
+<article class="msg" id="{{ number }}">
+  {{ #author.avatarUrl }}<img class="avatar" src="{{ . }}" alt="" loading="lazy">{{ /author.avatarUrl }}{{ ^author.avatarUrl }}<span class="avatar"></span>{{ /author.avatarUrl }}
+  <div class="msg-main">
+    <div class="msg-head">
+      <span class="name">{{ #author }}{{ displayName }}{{ ^displayName }}{{ username }}{{ /displayName }}{{ /author }}{{ ^author }}Unknown user{{ /author }}</span>
+      <span class="muted">{{ createdAtTimestamp }}</span>
+      <a class="num" href="#{{ number }}">{{ number }}</a>
+    </div>
+    {{ #body }}<div class="body">{{ body }}</div>{{ /body }}
+    {{ #media.length }}
+    <div class="media">
+      {{ #media }}
+      {{ #isImage }}<a class="thumb" href="{{ url }}" target="_blank" rel="noopener noreferrer" title="{{ name }}"><img src="{{ url }}" alt="{{ name }}" loading="lazy"></a>{{ /isImage }}
+      {{ #isVideo }}<video src="{{ url }}" controls preload="metadata"></video>{{ /isVideo }}
+      {{ #isFile }}<a class="file" href="{{ url }}" target="_blank" rel="noopener noreferrer">📎 {{ name }}{{ #size }} <span class="muted">({{ . }})</span>{{ /size }}</a>{{ /isFile }}
+      {{ /media }}
+    </div>
+    {{ /media.length }}
+    {{ #embedPreviews }}
+    <div class="embed">
+      {{ #title }}<div>{{ #url }}<a href="{{ . }}" target="_blank" rel="noopener noreferrer">{{ title }}</a>{{ /url }}{{ ^url }}<strong>{{ title }}</strong>{{ /url }}</div>{{ /title }}
+      {{ ^title }}{{ #url }}<div><a href="{{ . }}" target="_blank" rel="noopener noreferrer">{{ . }}</a></div>{{ /url }}{{ /title }}
+      {{ #description }}<div class="desc">{{ . }}</div>{{ /description }}
+      {{ #imageUrl }}<a href="{{ . }}" target="_blank" rel="noopener noreferrer"><img src="{{ . }}" alt="" loading="lazy"></a>{{ /imageUrl }}
+    </div>
+    {{ /embedPreviews }}
+  </div>
+</article>
+{{ /ticket.archivedMessages }}
+</main>
+</body>
+</html>

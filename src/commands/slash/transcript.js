@@ -100,7 +100,9 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 		}
 
 		const {
+			contentType,
 			fileName,
+			html,
 			transcript,
 		} = await this.fillTemplate(ticket);
 
@@ -114,10 +116,15 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 				const key = storage.buildKey('transcripts', ticket.guildId, ticket.id, fileName);
 				await storage.put({
 					body: Buffer.from(transcript),
-					contentType: 'text/plain; charset=utf-8',
+					contentType,
 					key,
 				});
-				const url = await storage.presign(key, { filename: fileName });
+				// An HTML transcript opens in the browser rather than
+				// downloading, so a reviewer is one click from the images.
+				const url = await storage.presign(key, {
+					filename: fileName,
+					inline: html,
+				});
 				const getMessage = client.i18n.getLocale(ticket.guild.locale);
 				return await interaction.editReply({
 					embeds: [
