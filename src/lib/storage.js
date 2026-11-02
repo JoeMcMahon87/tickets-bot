@@ -149,6 +149,29 @@ async function put({
 }
 
 /**
+ * Read an object into memory, or null if it is larger than `maxBytes`.
+ *
+ * The size is checked from the response headers before the body is read, so
+ * an oversized object costs a request, not its bytes.
+ * @param {string} key
+ * @param {object} options
+ * @param {number} options.maxBytes
+ * @returns {Promise<Uint8Array?>}
+ */
+async function get(key, { maxBytes }) {
+	const res = await getClient().send(new GetObjectCommand({
+		Bucket: bucket,
+		Key: key,
+	}));
+	if (res.ContentLength && res.ContentLength > maxBytes) {
+		res.Body?.destroy?.();
+		return null;
+	}
+	const body = await res.Body.transformToByteArray();
+	return body.length > maxBytes ? null : body;
+}
+
+/**
  * Create a time-limited download URL for an object.
  * @param {string} key
  * @param {object} options
@@ -252,6 +275,7 @@ module.exports = {
 	bucket,
 	buildKey,
 	enabled,
+	get,
 	maxAttachmentSize,
 	mirror,
 	presign,

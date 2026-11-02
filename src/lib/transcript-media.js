@@ -79,19 +79,30 @@ function escapeHtml(text) {
  *
  * Embeds are archived as `{ ...embed }` of a discord.js `Embed`, which puts
  * the API payload under `data`; anything stored as a bare payload is read
- * as-is. Embed images are not mirrored, so these are the original URLs.
+ * as-is. Embed images are not mirrored, so `image.url` is the original URL;
+ * `image.proxyUrl` is Discord's media-proxy copy, which is what the bot may
+ * fetch to embed it (see src/lib/transcript-inline.js).
  * @param {object} embed
- * @returns {{title: string?, url: string?, description: string?, imageUrl: string?}?}
+ * @returns {{title: string?, url: string?, description: string?, image: object?}?}
  */
 function describeEmbed(embed) {
 	const data = embed?.data ?? embed ?? {};
+	const source = data.image?.url ? data.image : data.thumbnail;
+	const url = safeUrl(source?.url);
 	const preview = {
 		description: typeof data.description === 'string' ? data.description : null,
-		imageUrl: safeUrl(data.image?.url) ?? safeUrl(data.thumbnail?.url),
+		image: url
+			? {
+				height: Number.isFinite(source.height) ? source.height : null,
+				proxyUrl: safeUrl(source.proxy_url ?? source.proxyURL),
+				url,
+				width: Number.isFinite(source.width) ? source.width : null,
+			}
+			: null,
 		title: typeof data.title === 'string' ? data.title : null,
 		url: safeUrl(data.url),
 	};
-	if (!preview.title && !preview.url && !preview.description && !preview.imageUrl) return null;
+	if (!preview.title && !preview.url && !preview.description && !preview.image) return null;
 	return preview;
 }
 

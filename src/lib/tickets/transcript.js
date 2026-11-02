@@ -24,6 +24,7 @@ const {
 	resolveTicketMedia,
 	resolveTranscriptTarget,
 } = require('../transcript');
+const { embedTicketImages } = require('../transcript-inline');
 const { pools } = require('../threads');
 
 const { transcript: pool } = pools;
@@ -120,33 +121,36 @@ async function renderTranscript(client, ticket) {
 	const fileName = `${channelName}.${name.split('.').slice(-1)[0]}`;
 	const html = isHtmlTemplate(name);
 
-	const transcript = Mustache.render(getTemplate(client), {
+	// Each is called by Mustache with the ticket or message as `this`.
+	const formatDate = (field, dateStyle) => function () {
+		return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
+			dateStyle,
+			timeStyle: 'long',
+			timeZone: 'Etc/UTC',
+		}).format(this[field]);
+	};
+
+	const render = () => Mustache.render(getTemplate(client), {
 		channelName,
-		closedAtFull: function () {
-			return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-				dateStyle: 'full',
-				timeStyle: 'long',
-				timeZone: 'Etc/UTC',
-			}).format(this.closedAt);
-		},
-		createdAtFull: function () {
-			return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-				dateStyle: 'full',
-				timeStyle: 'long',
-				timeZone: 'Etc/UTC',
-			}).format(this.createdAt);
-		},
-		createdAtTimestamp: function () {
-			return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-				dateStyle: 'short',
-				timeStyle: 'long',
-				timeZone: 'Etc/UTC',
-			}).format(this.createdAt);
-		},
+		closedAtFull: formatDate('closedAt', 'full'),
+		createdAtFull: formatDate('createdAt', 'full'),
+		createdAtTimestamp: formatDate('createdAt', 'short'),
 		guildName: client.guilds.cache.get(ticket.guildId)?.name,
 		pinned: ticket.pinnedMessageIds.join(', '),
 		ticket,
 	}, undefined, { escape: html ? escapeHtml : text => text });
+
+	let transcript = render();
+	if (html) {
+		transcript = await embedTicketImages({
+			limit: MAX_ATTACHMENT_BYTES,
+			log: client.log,
+			render,
+			storage,
+			ticket,
+			transcript,
+		});
+	}
 
 	return {
 		contentType: html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',

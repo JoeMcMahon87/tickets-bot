@@ -95,10 +95,14 @@ async function main() {
 	// The empty embed is dropped from the previews but still counted in text.
 	assert.strictEqual(m.embedPreviews.length, 1);
 	assert.strictEqual(m.text.split('[embedded content]').length - 1, 2);
-	assert.deepStrictEqual(rich.gallery.map(g => [g.number, g.url]), [
-		['M1', 'https://s3.example/attachments/proof.png?signed'],
-		['M1', 'https://i.example/cat.jpg'],
+	assert.deepStrictEqual(rich.gallery.map(g => [g.id, g.number, g.url]), [
+		['img-1', 'M1', 'https://s3.example/attachments/proof.png?signed'],
+		['img-2', 'M1', 'https://i.example/cat.jpg'],
 	]);
+	// Shared, not copied: whatever is embedded later shows in both places.
+	assert.strictEqual(rich.gallery[0], m.media[0]);
+	assert.strictEqual(rich.gallery[1], m.embedPreviews[0].image);
+	assert.deepStrictEqual([rich.inlineImages, rich.linkedImageCount], [[], 2]);
 	ok('attachments and embed images are exposed as media and a ticket gallery');
 
 	assert.strictEqual(mediaKind({ contentType: 'image/webp' }), 'image');
@@ -118,7 +122,7 @@ async function main() {
 	assert.strictEqual(safeUrl('javascript:alert(1)'), null);
 	assert.strictEqual(safeUrl('https://ok.example'), 'https://ok.example');
 	assert.strictEqual(describeEmbed({ data: { url: 'javascript:alert(1)' } }), null);
-	assert.strictEqual(describeEmbed({ image: { url: 'https://a.example/b.png' } }).imageUrl, 'https://a.example/b.png');
+	assert.strictEqual(describeEmbed({ image: { url: 'https://a.example/b.png' } }).image.url, 'https://a.example/b.png');
 	ok('embed URLs must be http(s); bare payloads are read too');
 
 	assert.strictEqual(escapeHtml('<b a="1">&\''), '&lt;b a&#x3D;&quot;1&quot;&gt;&amp;&#39;');
@@ -158,6 +162,8 @@ async function main() {
 	assert.ok(html.includes('id="M1"') && html.includes('href="#M1"'));
 	assert.ok(html.includes('Images (2)'));
 	assert.ok(html.includes('📎 log.pdf'));
+	assert.ok(html.includes('2 image(s) could not be saved'));
+	assert.ok(!html.includes('class="lightbox"'));
 	ok('HTML template shows images inline, links files, escapes content');
 
 	console.log(`\n[check-transcript-html] ${pass} checks passed`);

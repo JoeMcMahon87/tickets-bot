@@ -68,6 +68,11 @@ const env = {
 	SUPER: v =>
 		(!v || v.split(',').every(id => /^\d{17,20}$/.test(id.trim()))) ||
 		new Error('must be empty, or a comma-separated list of Discord user IDs'),
+	// Raw bytes of images to embed in each HTML transcript. Optional; 0 turns
+	// embedding off. See src/lib/transcript-inline.js.
+	TRANSCRIPT_INLINE_IMAGE_BYTES: v =>
+		(!v || (Number.isInteger(Number(v)) && Number(v) >= 0)) ||
+		new Error('must be a whole number of bytes, or 0 to disable'),
 };
 
 const load = options => {

@@ -28,6 +28,15 @@ ul.people li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .gallery figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .gallery img { display: block; width: 100%; height: 140px; object-fit: cover; }
+/* An embedded image's bytes live once, in a --src custom property set at the
+   end of the page, and every place that shows it paints that as a background. */
+.pic { display: block; background-image: var(--src); background-repeat: no-repeat; background-position: center; background-size: contain; }
+.gallery .pic { height: 140px; background-size: cover; }
+.media .pic, .embed .pic { height: 240px; max-width: min(100%, 480px); aspect-ratio: 4 / 3; background-position: left center; }
+.lightbox { display: none; position: fixed; inset: 0; z-index: 10; flex-direction: column; padding: 16px; background: rgba(0, 0, 0, 0.9); text-decoration: none; }
+.lightbox:target { display: flex; }
+.lightbox .pic { flex: 1; min-height: 0; }
+.lightbox .cap { padding-top: 8px; color: #fff; text-align: center; font-size: 0.9rem; }
 .gallery figcaption { padding: 6px 8px; font-size: 0.85rem; overflow-wrap: anywhere; }
 .qa { margin: 0 0 12px; }
 .qa blockquote { margin: 4px 0 0; padding: 4px 12px; border-left: 3px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -39,8 +48,8 @@ ul.people li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .msg-head .num { font-size: 0.8rem; text-decoration: none; color: var(--muted); }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .media { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 6px; }
-.media a.thumb { display: block; max-width: min(100%, 320px); }
-.media a.thumb img { display: block; max-width: 100%; max-height: 240px; border-radius: 6px; border: 1px solid var(--line); }
+.media a.thumb { display: block; max-width: 100%; }
+.media a.thumb img { display: block; max-width: min(100%, 320px); max-height: 240px; border-radius: 6px; border: 1px solid var(--line); }
 .media video { max-width: min(100%, 420px); max-height: 300px; border-radius: 6px; }
 .file { display: inline-block; padding: 6px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
 .embed { margin-top: 6px; padding: 8px 12px; background: var(--card); border-left: 4px solid var(--accent); border-radius: 4px; max-width: 520px; }
@@ -83,12 +92,14 @@ ul.people li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 <div class="gallery">
 {{ #ticket.gallery }}
   <figure>
-    <a href="{{ url }}" target="_blank" rel="noopener noreferrer"><img src="{{ url }}" alt="{{ name }}" loading="lazy"></a>
+    {{ #dataUri }}<a href="#view-{{ id }}" title="{{ name }}"><span class="pic {{ id }}" role="img" aria-label="{{ name }}"></span></a>{{ /dataUri }}
+    {{ ^dataUri }}<a href="{{ url }}" target="_blank" rel="noopener noreferrer"><img src="{{ url }}" alt="{{ name }}" loading="lazy"></a>{{ /dataUri }}
     <figcaption><a href="#{{ number }}">{{ number }}</a> · {{ name }}</figcaption>
   </figure>
 {{ /ticket.gallery }}
 </div>
-<p class="muted note">Image links are time-limited. If they no longer load, run <code>/transcript</code> again for fresh ones.</p>
+{{ #ticket.inlineImages.length }}<p class="muted note">Images are saved inside this file, so they keep working offline and after Discord's links expire.</p>{{ /ticket.inlineImages.length }}
+{{ #ticket.linkedImageCount }}<p class="muted note">{{ ticket.linkedImageCount }} image(s) could not be saved into this file (too large, or no longer available) and are linked instead. Links are time-limited; if they no longer load, run <code>/transcript</code> again for fresh ones.</p>{{ /ticket.linkedImageCount }}
 {{ /ticket.gallery.length }}
 
 <h2>Questions</h2>
@@ -116,7 +127,7 @@ ul.people li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
     {{ #media.length }}
     <div class="media">
       {{ #media }}
-      {{ #isImage }}<a class="thumb" href="{{ url }}" target="_blank" rel="noopener noreferrer" title="{{ name }}"><img src="{{ url }}" alt="{{ name }}" loading="lazy"></a>{{ /isImage }}
+      {{ #isImage }}{{ #dataUri }}<a class="thumb" href="#view-{{ id }}" title="{{ name }}"><span class="pic {{ id }}" role="img" aria-label="{{ name }}"{{ #width }}{{ #height }} style="aspect-ratio: {{ width }} / {{ height }}"{{ /height }}{{ /width }}></span></a>{{ /dataUri }}{{ ^dataUri }}<a class="thumb" href="{{ url }}" target="_blank" rel="noopener noreferrer" title="{{ name }}"><img src="{{ url }}" alt="{{ name }}" loading="lazy"></a>{{ /dataUri }}{{ /isImage }}
       {{ #isVideo }}<video src="{{ url }}" controls preload="metadata"></video>{{ /isVideo }}
       {{ #isFile }}<a class="file" href="{{ url }}" target="_blank" rel="noopener noreferrer">📎 {{ name }}{{ #size }} <span class="muted">({{ . }})</span>{{ /size }}</a>{{ /isFile }}
       {{ /media }}
@@ -127,12 +138,23 @@ ul.people li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
       {{ #title }}<div>{{ #url }}<a href="{{ . }}" target="_blank" rel="noopener noreferrer">{{ title }}</a>{{ /url }}{{ ^url }}<strong>{{ title }}</strong>{{ /url }}</div>{{ /title }}
       {{ ^title }}{{ #url }}<div><a href="{{ . }}" target="_blank" rel="noopener noreferrer">{{ . }}</a></div>{{ /url }}{{ /title }}
       {{ #description }}<div class="desc">{{ . }}</div>{{ /description }}
-      {{ #imageUrl }}<a href="{{ . }}" target="_blank" rel="noopener noreferrer"><img src="{{ . }}" alt="" loading="lazy"></a>{{ /imageUrl }}
+      {{ #image }}{{ #dataUri }}<a href="#view-{{ id }}" title="{{ name }}"><span class="pic {{ id }}" role="img" aria-label="{{ name }}"{{ #width }}{{ #height }} style="aspect-ratio: {{ width }} / {{ height }}"{{ /height }}{{ /width }}></span></a>{{ /dataUri }}{{ ^dataUri }}<a href="{{ url }}" target="_blank" rel="noopener noreferrer"><img src="{{ url }}" alt="" loading="lazy"></a>{{ /dataUri }}{{ /image }}
     </div>
     {{ /embedPreviews }}
   </div>
 </article>
 {{ /ticket.archivedMessages }}
 </main>
+{{ #ticket.inlineImages }}
+<a class="lightbox" id="view-{{ id }}" href="#_" title="Close"><span class="pic {{ id }}" role="img" aria-label="{{ name }}"></span><span class="cap">{{ number }} · {{ name }} · click anywhere to close</span></a>
+{{ /ticket.inlineImages }}
+{{ #ticket.inlineImages.length }}
+<style>
+{{! dataUri is unescaped on purpose: entities are not decoded inside <style>, and it is built by src/lib/transcript-inline.js from a sniffed image type and base64, neither of which can contain a quote or a tag. }}
+{{ #ticket.inlineImages }}
+.{{ id }} { --src: url("{{{ dataUri }}}"); }
+{{ /ticket.inlineImages }}
+</style>
+{{ /ticket.inlineImages.length }}
 </body>
 </html>

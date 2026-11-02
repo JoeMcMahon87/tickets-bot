@@ -101,10 +101,12 @@ async function resolveAvatarUrl(user, resolver) {
  *
  *  - `body`: the message text alone, without the appended lines;
  *  - `media`: each attachment as `{name, url, size, isImage, isVideo, isFile}`;
- *  - `embedPreviews`: each embed as `{title, url, description, imageUrl}`;
+ *  - `embedPreviews`: each embed as `{title, url, description, image}`;
  *
- * and on the ticket, `gallery`: every image in the ticket, with the number of
- * the message it came from, so a reviewer can see them all in one place.
+ * and on the ticket, `gallery`: every image in the ticket, so a reviewer can
+ * see them all in one place. Gallery entries are the *same objects* as the
+ * message's media and embed images, each with an `id` and the `number` of its
+ * message, so anything later set on one (an embedded copy, say) shows in both.
  *
  * @param {object} ticket the ticket as returned by the transcript worker
  * @param {Resolver} resolver
@@ -112,6 +114,11 @@ async function resolveAvatarUrl(user, resolver) {
  */
 async function resolveTicketMedia(ticket, resolver) {
 	const gallery = [];
+	const addToGallery = (item, message) => {
+		item.id = `img-${gallery.length + 1}`;
+		item.number = message.number;
+		gallery.push(item);
+	};
 
 	for (const message of ticket.archivedMessages ?? []) {
 		message.body = message.content?.content ?? '';
@@ -123,20 +130,19 @@ async function resolveTicketMedia(ticket, resolver) {
 
 			const kind = mediaKind(attachment);
 			const item = {
+				height: Number.isFinite(attachment.height) ? attachment.height : null,
 				isFile: kind === 'file',
 				isImage: kind === 'image',
 				isVideo: kind === 'video',
 				name: attachment.name || 'attachment',
+				s3Key: attachment.s3Key ?? null,
 				size: formatBytes(attachment.size),
+				sourceUrl: attachment.url ?? null,
 				url,
+				width: Number.isFinite(attachment.width) ? attachment.width : null,
 			};
 			message.media.push(item);
-			if (item.isImage) {
-				gallery.push({
-					...item,
-					number: message.number,
-				});
-			}
+			if (item.isImage) addToGallery(item, message);
 		}
 
 		const embeds = message.content?.embeds ?? [];
@@ -145,18 +151,20 @@ async function resolveTicketMedia(ticket, resolver) {
 		}
 		message.embedPreviews = embeds.map(describeEmbed).filter(Boolean);
 		for (const preview of message.embedPreviews) {
-			if (preview.imageUrl) {
-				gallery.push({
-					isImage: true,
-					name: preview.title || 'embedded image',
-					number: message.number,
-					url: preview.imageUrl,
-				});
-			}
+			if (!preview.image) continue;
+			Object.assign(preview.image, {
+				isImage: true,
+				name: preview.title || 'embedded image',
+				sourceUrl: preview.image.proxyUrl,
+			});
+			addToGallery(preview.image, message);
 		}
 	}
 
 	ticket.gallery = gallery;
+	// Until src/lib/transcript-inline.js embeds some, every image is a link.
+	ticket.inlineImages = [];
+	ticket.linkedImageCount = gallery.length;
 
 	// The same user appears once per ticket, so this is a handful of
 	// signatures per transcript, each of which is local computation.

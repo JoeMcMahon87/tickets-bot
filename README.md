@@ -92,7 +92,13 @@ environment.
 - **HTML transcripts for reviewers.** The default transcript is now an HTML
   page: images are shown inline under the message they were posted in, and
   gathered in a gallery at the top, each one click from full size and from
-  the message it came from. Other files are labelled download links. Set
+  the message it came from. Images are saved *inside* the file, so they keep
+  working offline and after Discord's links expire; click one to enlarge it.
+  They are read from the S3 mirror when there is one, otherwise from
+  Discord's CDN, and as many are embedded as fit under Discord's 8 MiB upload
+  limit, with the rest left as links. `TRANSCRIPT_INLINE_IMAGE_BYTES` caps
+  the total (default 6 MiB, which in practice means "whatever fits"; `0`
+  turns embedding off). Other files are labelled download links. Set
   `templates.transcript: transcript.md` in `user/config.yml` for the
   plain-text version. An existing install keeps its own `config.yml`, so it
   needs that line changed to `transcript.html` to switch over.
