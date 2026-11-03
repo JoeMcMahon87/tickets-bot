@@ -171,6 +171,27 @@ jobs:
           sudo tar xzf /tmp/tickets-app.tar.gz -C "$APP"
           sudo chown -R "$BOT_USER:$BOT_USER" "$APP"
 
+          # One-time config changes for an existing install, which keeps its
+          # own user/config.yml and so never sees a new shipped default. Each
+          # runs once, recorded by a marker file, so a value changed back by
+          # hand afterwards is left alone. A fresh install gets the shipped
+          # config and needs none of this.
+          CONFIG="$APP/user/config.yml"
+          MARKERS="$APP/user/.config-migrations"
+          if sudo test -f "$CONFIG"; then
+            sudo -u "$BOT_USER" mkdir -p "$MARKERS"
+
+            # HTML transcripts, with images embedded. Only the old default is
+            # replaced; a custom template name is someone's choice.
+            if ! sudo test -e "$MARKERS/transcript-html"; then
+              sudo -u "$BOT_USER" sed -i \
+                's/^\(\s\+transcript:\s*\)transcript\.md\s*$/\1transcript.html/' \
+                "$CONFIG"
+              echo "templates.transcript is now: $(sudo grep -E '^\s+transcript:' "$CONFIG" | tr -d ' ')"
+              sudo -u "$BOT_USER" touch "$MARKERS/transcript-html"
+            fi
+          fi
+
           # CI=true stops scripts/preinstall from writing a .env (and with it a
           # fresh ENCRYPTION_KEY). The real .env is already in place.
           #

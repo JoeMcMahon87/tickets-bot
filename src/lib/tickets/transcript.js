@@ -19,14 +19,20 @@ const { AttachmentBuilder } = require('discord.js');
 const ExtendedEmbedBuilder = require('../embed');
 const storage = require('../storage');
 const {
+	escapeHtml,
+	isHtmlTemplate,
 	resolveTicketMedia,
 	resolveTranscriptTarget,
 } = require('../transcript');
+const { embedTicketImages } = require('../transcript-inline');
 const { pools } = require('../threads');
 
 const { transcript: pool } = pools;
 
-// Transcripts are rendered from the template verbatim; they are not HTML.
+// A text template (the default `transcript.md`) is rendered verbatim. An HTML
+// template is rendered with escaping, because every value in it is ticket
+// content that a member typed. The escape is passed per render rather than
+// set on the shared Mustache instance, so one cannot leak into the other.
 Mustache.escape = text => text;
 
 /**
@@ -93,7 +99,7 @@ async function fetchTicketForTranscript(client, where) {
  *
  * @param {import("client")} client
  * @param {object} ticket a ticket fetched with TRANSCRIPT_INCLUDE
- * @returns {Promise<{fileName: string, transcript: string}>}
+ * @returns {Promise<{contentType: string, fileName: string, html: boolean, transcript: string}>}
  */
 async function renderTranscript(client, ticket) {
 	// Decryption happens on a worker thread; media resolution has to happen
@@ -113,37 +119,43 @@ async function renderTranscript(client, ticket) {
 
 	const name = client.config.templates.transcript;
 	const fileName = `${channelName}.${name.split('.').slice(-1)[0]}`;
+	const html = isHtmlTemplate(name);
 
-	const transcript = Mustache.render(getTemplate(client), {
+	// Each is called by Mustache with the ticket or message as `this`.
+	const formatDate = (field, dateStyle) => function () {
+		return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
+			dateStyle,
+			timeStyle: 'long',
+			timeZone: 'Etc/UTC',
+		}).format(this[field]);
+	};
+
+	const render = () => Mustache.render(getTemplate(client), {
 		channelName,
-		closedAtFull: function () {
-			return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-				dateStyle: 'full',
-				timeStyle: 'long',
-				timeZone: 'Etc/UTC',
-			}).format(this.closedAt);
-		},
-		createdAtFull: function () {
-			return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-				dateStyle: 'full',
-				timeStyle: 'long',
-				timeZone: 'Etc/UTC',
-			}).format(this.createdAt);
-		},
-		createdAtTimestamp: function () {
-			return new Intl.DateTimeFormat([ticket.guild.locale, 'en-GB'], {
-				dateStyle: 'short',
-				timeStyle: 'long',
-				timeZone: 'Etc/UTC',
-			}).format(this.createdAt);
-		},
+		closedAtFull: formatDate('closedAt', 'full'),
+		createdAtFull: formatDate('createdAt', 'full'),
+		createdAtTimestamp: formatDate('createdAt', 'short'),
 		guildName: client.guilds.cache.get(ticket.guildId)?.name,
 		pinned: ticket.pinnedMessageIds.join(', '),
 		ticket,
-	});
+	}, undefined, { escape: html ? escapeHtml : text => text });
+
+	let transcript = render();
+	if (html) {
+		transcript = await embedTicketImages({
+			limit: MAX_ATTACHMENT_BYTES,
+			log: client.log,
+			render,
+			storage,
+			ticket,
+			transcript,
+		});
+	}
 
 	return {
+		contentType: html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
 		fileName,
+		html,
 		transcript,
 	};
 }
@@ -193,7 +205,9 @@ async function postClosedTranscript(client, closedTicket) {
 
 	const getMessage = client.i18n.getLocale(ticket.guild.locale);
 	const {
+		contentType,
 		fileName,
+		html,
 		transcript,
 	} = await renderTranscript(client, ticket);
 
@@ -258,10 +272,13 @@ async function postClosedTranscript(client, closedTicket) {
 		const key = storage.buildKey('transcripts', ticket.guildId, ticket.id, fileName);
 		await storage.put({
 			body: Buffer.from(transcript),
-			contentType: 'text/plain; charset=utf-8',
+			contentType,
 			key,
 		});
-		const url = await storage.presign(key, { filename: fileName });
+		const url = await storage.presign(key, {
+			filename: fileName,
+			inline: html,
+		});
 		embed.setDescription(getMessage('transcripts.archive.too_large_link', {
 			fileName,
 			url,

@@ -19,6 +19,14 @@
  */
 
 const { decodeAvatar } = require('./avatars');
+const {
+	describeEmbed,
+	escapeHtml,
+	formatBytes,
+	isHtmlTemplate,
+	mediaKind,
+	safeUrl,
+} = require('./transcript-media');
 
 const DISCORD_CDN = 'https://cdn.discordapp.com';
 
@@ -88,20 +96,75 @@ async function resolveAvatarUrl(user, resolver) {
  * sets `avatarUrl` on every archived user so a transcript template can show
  * participants' avatars as they were.
  *
+ * For templates that lay media out rather than listing URLs (the HTML one),
+ * it also sets, per message:
+ *
+ *  - `body`: the message text alone, without the appended lines;
+ *  - `media`: each attachment as `{name, url, size, isImage, isVideo, isFile}`;
+ *  - `embedPreviews`: each embed as `{title, url, description, image}`;
+ *
+ * and on the ticket, `gallery`: every image in the ticket, so a reviewer can
+ * see them all in one place. Gallery entries are the *same objects* as the
+ * message's media and embed images, each with an `id` and the `number` of its
+ * message, so anything later set on one (an embedded copy, say) shows in both.
+ *
  * @param {object} ticket the ticket as returned by the transcript worker
  * @param {Resolver} resolver
  * @returns {Promise<object>} the same ticket
  */
 async function resolveTicketMedia(ticket, resolver) {
+	const gallery = [];
+	const addToGallery = (item, message) => {
+		item.id = `img-${gallery.length + 1}`;
+		item.number = message.number;
+		gallery.push(item);
+	};
+
 	for (const message of ticket.archivedMessages ?? []) {
+		message.body = message.content?.content ?? '';
+		message.media = [];
+
 		for (const attachment of message.content?.attachments ?? []) {
-			message.text += '\n\t' + await resolveAttachmentUrl(attachment, resolver);
+			const url = await resolveAttachmentUrl(attachment, resolver);
+			message.text += '\n\t' + url;
+
+			const kind = mediaKind(attachment);
+			const item = {
+				height: Number.isFinite(attachment.height) ? attachment.height : null,
+				isFile: kind === 'file',
+				isImage: kind === 'image',
+				isVideo: kind === 'video',
+				name: attachment.name || 'attachment',
+				s3Key: attachment.s3Key ?? null,
+				size: formatBytes(attachment.size),
+				sourceUrl: attachment.url ?? null,
+				url,
+				width: Number.isFinite(attachment.width) ? attachment.width : null,
+			};
+			message.media.push(item);
+			if (item.isImage) addToGallery(item, message);
 		}
-		const embedCount = message.content?.embeds?.length ?? 0;
-		for (let i = 0; i < embedCount; i++) {
+
+		const embeds = message.content?.embeds ?? [];
+		for (let i = 0; i < embeds.length; i++) {
 			message.text += '\n\t[embedded content]';
 		}
+		message.embedPreviews = embeds.map(describeEmbed).filter(Boolean);
+		for (const preview of message.embedPreviews) {
+			if (!preview.image) continue;
+			Object.assign(preview.image, {
+				isImage: true,
+				name: preview.title || 'embedded image',
+				sourceUrl: preview.image.proxyUrl,
+			});
+			addToGallery(preview.image, message);
+		}
 	}
+
+	ticket.gallery = gallery;
+	// Until src/lib/transcript-inline.js embeds some, every image is a link.
+	ticket.inlineImages = [];
+	ticket.linkedImageCount = gallery.length;
 
 	// The same user appears once per ticket, so this is a handful of
 	// signatures per transcript, each of which is local computation.
@@ -190,9 +253,15 @@ function resolveTranscriptTarget({
 
 module.exports = {
 	DISCORD_CDN,
+	describeEmbed,
+	escapeHtml,
+	formatBytes,
+	isHtmlTemplate,
+	mediaKind,
 	resolveAttachmentUrl,
 	resolveAvatarUrl,
 	resolveTicketMedia,
 	resolveTranscriptChannel,
 	resolveTranscriptTarget,
+	safeUrl,
 };
