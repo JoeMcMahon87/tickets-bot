@@ -100,8 +100,8 @@ environment.
   the total (default 6 MiB, which in practice means "whatever fits"; `0`
   turns embedding off). Other files are labelled download links. Set
   `templates.transcript: transcript.md` in `user/config.yml` for the
-  plain-text version. An existing install keeps its own `config.yml`, so it
-  needs that line changed to `transcript.html` to switch over.
+  plain-text version. An existing install keeps its own `config.yml`; the
+  deploy workflow switches it over once, and leaves it alone after that.
 - **Optional object storage.** Transcripts and archived attachments can be
   mirrored to S3-compatible storage, with presigned links; local storage
   remains the default. Member avatars are mirrored too, so transcripts keep
