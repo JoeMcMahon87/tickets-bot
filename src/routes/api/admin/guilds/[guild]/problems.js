@@ -1,4 +1,7 @@
-const { PermissionsBitField } = require('discord.js');
+const {
+	DASHBOARD_PROBLEM_IDS,
+	checkGuild,
+} = require('../../../../../lib/channel-health');
 
 module.exports.get = fastify => ({
 	handler: async req => {
@@ -8,31 +11,22 @@ module.exports.get = fastify => ({
 		const guild = client.guilds.cache.get(id);
 		const settings = await client.prisma.guild.findUnique({ where: { id } }) ??
 			await client.prisma.guild.create({ data: { id } });
-		const problems = [];
+		const categories = await client.prisma.category.findMany({ where: { guildId: id } });
 
-		if (settings.logChannel) {
-			const permissions = guild.members.me.permissionsIn(settings.logChannel);
+		const { problems } = checkGuild({
+			categories,
+			config: client.config,
+			guild,
+			isBotPublic: process.env.PUBLIC_BOT !== 'true' && client.application.botPublic,
+			log: client.log,
+			settings,
+		});
 
-			if (!permissions.has(PermissionsBitField.Flags.SendMessages)) {
-				problems.push({
-					id: 'logChannelMissingPermission',
-					permission: 'SendMessages',
-				});
-			}
-
-			if (!permissions.has(PermissionsBitField.Flags.EmbedLinks)) {
-				problems.push({
-					id: 'logChannelMissingPermission',
-					permission: 'EmbedLinks',
-				});
-			}
-
-			if (process.env.PUBLIC_BOT !== 'true' && client.application.botPublic) {
-				problems.push({ id: 'botPublic' });
-			}
-		}
-
-		return problems;
+		// The dashboard renders by problem ID and prints the raw object for an ID
+		// it does not know, so the fuller report -- ticket categories, transcript
+		// channels, deleted channels -- is held back until it learns them. Those
+		// problems are not lost: `/check-setup` shows all of them in Discord.
+		return problems.filter(problem => DASHBOARD_PROBLEM_IDS.includes(problem.id));
 	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
 });
