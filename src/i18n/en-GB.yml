@@ -67,6 +67,56 @@ commands:
       success:
         description: "{member} has been added to {ticket}."
         title: ✅ Added
+    check-setup:
+      description: Check the bot's permissions in the channels it is configured to use
+      expected:
+        category: a Discord category
+        text: a text channel
+      features:
+        pin: pinning messages in tickets
+      kinds:
+        logChannel: Log channel
+        ticketCategory: Ticket category
+        transcriptChannel: Transcript channel
+      name: check-setup
+      not_admin:
+        description: Only members with the **Manage Server** permission can check the configuration.
+        title: ❌ Error
+      ok:
+        description: >-
+          The bot has every permission it needs in the channels it is configured
+          to use.
+        title: ✅ No problems found
+      problems:
+        bot_public: >-
+          **This bot is public**: anyone can add it to their own server. Turn
+          **Public Bot** off in the Discord developer portal.
+        channel_missing: >-
+          The configured channel (`{channel}`) no longer exists, or the bot
+          cannot see it at all.
+        channel_wrong_type: <#{channel}> is not {expected}.
+        missing_optional_permission: >-
+          Missing {permission}, which is only needed for {feature}.
+        missing_permissions: "Missing in <#{channel}>: {permissions}"
+      problems_found:
+        description: Tickets will fail until these are fixed.
+        title: ⚠️ Problems found
+      summary:
+        categories:
+          - "**%d** ticket category"
+          - "**%d** ticket categories"
+        checked: "Checked {targets}."
+        log:
+          - "**%d** log channel"
+          - "**%d** log channels"
+        transcripts:
+          - "**%d** transcript channel"
+          - "**%d** transcript channels"
+      truncated:
+        description:
+          - "%d more channel has problems but did not fit."
+          - "%d more channels have problems but did not fit."
+        title: …
     claim:
       description: Claim a ticket
       name: claim
